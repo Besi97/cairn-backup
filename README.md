@@ -2,6 +2,10 @@
 
 Your trail to recovery.
 
+## Documentation
+
+Architectural decisions are documented in [docs/decisions](docs/decisions/).
+
 ## License
 
 Unless otherwise noted, this repository is licensed under the GNU Affero General
