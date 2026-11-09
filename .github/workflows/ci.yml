@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cli:
+    name: CLI checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: cli
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.3'
+          # The scaffold has no dependencies or go.sum yet.
+          cache: false
+      - name: Check formatting
+        run: make fmt-check
+      - name: Vet
+        run: make vet
+      - name: Staticcheck
+        run: make staticcheck
+      - name: Check vulnerabilities
+        run: make security
+      - name: Test with race detection
+        run: make test
+      - name: Build supported architectures
+        run: make build-all
