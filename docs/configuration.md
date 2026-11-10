@@ -106,6 +106,11 @@ Only the named job runs. Repositories must already exist; Cairn does not create
 them. Local repositories and SSH repositories both use the existing Borg
 repository format.
 
+Cairn does not queue or coordinate runs. Borg serializes its own write commands
+on a repository. If another command holds the lock, the run waits up to
+`lock_wait` and then fails with exit code `4`. Cairn does not retry, and a run
+that is waiting can be stopped with Ctrl-C.
+
 ## Jobs and sources
 
 Add each backup job under `jobs`. Job and repository names use lowercase
