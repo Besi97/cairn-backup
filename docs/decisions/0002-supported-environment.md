@@ -63,7 +63,6 @@ just a warning. Development documentation may change before stable release.
 | Binary | `/usr/local/bin/cairn` | Same binary or a custom manual installation location |
 | Configuration | `/etc/cairn/config.yaml` | `$XDG_CONFIG_HOME/cairn/config.yaml` (`~/.config/cairn/config.yaml`) |
 | State/history | `/var/lib/cairn` | `$XDG_STATE_HOME/cairn` (`~/.local/state/cairn`) |
-| Repository locks | Proposed `/run/lock/cairn` | Same shared namespace |
 
 Parenthesized XDG paths apply when the variable is unset or empty. Define discovery,
 overrides, and relative-path resolution with the CLI/configuration contract;
@@ -75,10 +74,9 @@ Keep secrets and private state owner-only by default (`0700` directories,
 `0600` files); grant additional access deliberately. System configuration may be
 root-owned and readable, but not writable, by the service account.
 
-Only repository coordination needs system-wide sharing, not configuration,
-secrets, or history. Shared lock access grants none of those other permissions.
-See [local repository coordination](0001-local-repository-coordination.md) for
-local-filesystem requirements and pending provisioning/access rules.
+Configuration, secrets, and history do not need system-wide sharing. Repository
+coordination is deferred; 0.1.0 relies on Borg's own repository locks. See
+[local repository coordination](0001-local-repository-coordination.md).
 
 ## Verification before release
 
@@ -88,12 +86,13 @@ local-filesystem requirements and pending provisioning/access rules.
   retention isolation, compaction, dry-run non-mutation, and version-check policy.
 - Execute tests on both architectures; cross-compilation is insufficient. Record
   actual reference OS/architecture combinations rather than implying a full matrix.
-- Test coordination, cancellation, crashes/surviving subprocesses, authorized
-  cross-account locking, rejected host keys, missing credentials, and secret-free
-  diagnostics.
+- Test cancellation of active and waiting Borg runs, crashes with surviving Borg
+  subprocesses, rejected host keys, missing credentials, and secret-free
+  diagnostics. Verify that Borg's repository lock serializes concurrent `create`
+  and `prune`, and that a run waiting on the lock fails after `lock_wait`.
 - Run Go tests, static analysis, security checks, and pinned-toolchain builds.
-- Verify installation, explicit identity selection, lock provisioning after reboot,
-  service lifecycle, upgrade, and uninstall in VMs or reproducible manual checks.
+- Verify installation, explicit identity selection, service lifecycle, upgrade, and
+  uninstall in VMs or reproducible manual checks.
   Preserve configuration, state, and backups unless removal is explicitly requested.
 
 Record results, including any checks performed manually. These are requirements,

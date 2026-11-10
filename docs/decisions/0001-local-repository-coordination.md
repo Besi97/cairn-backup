@@ -1,64 +1,66 @@
 # Local repository coordination
 
-Status: agreed direction; implementation and safety validation pending.
+Status: deferred. Not part of 0.1.0. Borg's own repository locks are the only
+repository serialization in 0.1.0.
 
-Date: 8 November 2026.
+Date: 8 November 2026. Updated: 10 November 2026.
 
 ## Context
 
-Independent manual commands and the scheduler must serialize workflows targeting
-one repository on the same host, without requiring a running agent. Only
-repository coordination needs sharing; configuration, secrets, and history can
-remain account-local.
+Independent manual commands and the scheduler can run Borg commands against the
+same repository on one host. Borg already takes an exclusive repository lock for
+`create`, `prune`, and `compact`, so overlapping writes are serialized by Borg.
+Cairn-level coordination (lock files, a queue, workflow reservations, cross-process
+admission, and cancellation of waiting work) would add substantial implementation
+and safety validation work that early use does not need.
 
-## Direction
+## Decision for 0.1.0
 
-- Use a per-repository file with an exclusive OS advisory lock, such as Linux
-  `flock`. Contenders wait without starting Borg.
-- Hold the lock throughout **backup → prune → compact**.
-- Use a dedicated local-filesystem namespace, proposed at `/run/lock/cairn`,
-  with explicitly managed access and provisioning after reboot.
-- Derive filenames from stable repository identities. CLI and agent must use
-  consistent identities and the same namespace, independent of private state.
-- Release the OS lock, not the filename. Never unlink or replace files while
-  processes may hold or await their locks: replacement creates a separate lock
-  object and can permit overlapping workflows.
-
-Avoid `/tmp`: predictable files invite pre-creation/symlink attacks and ownership
-conflicts; cleanup can unlink active locks; differing temporary-directory settings
-can split coordination. A dedicated directory still needs safe creation/opening
-and ownership checks.
-
-Shared lock access does not grant credential or source access, but participants
-can deny service by holding locks. Prevent untrusted replacement or redirected
-privileged opens. Never silently fall back to private locks after access errors.
+- Cairn adds no repository lock files, lock namespace, or queue.
+- Each Borg command takes Borg's repository lock and waits up to the configured
+  `lock_wait`. If the lock is not acquired in time, the run fails with exit code
+  `4`. There is no retry loop.
+- Backup, prune, and compact are not reserved as one workflow. Another job may run
+  a Borg command between stages; Borg serializes each command. A failed backup
+  still stops maintenance (see [supported environment](0002-supported-environment.md)).
+- Scheduled runs of one job do not overlap within one agent process (agent work
+  in [#8](https://github.com/Besi97/cairn-backup/issues/8)).
+- Cross-process admission, which skips a scheduled run while the same job is
+  waiting or running, is tracked in
+  [#30](https://github.com/Besi97/cairn-backup/issues/30).
 
 ## Limits
 
-These locks cover cooperating local Cairn processes only. External commands,
-other hosts, separate namespaces, and unrecognized repository aliases still rely
-on Borg locking. Use Borg's bounded external-lock wait, then fail without an
-automatic retry loop.
+- No queue and no fairness: a waiting run competes with others for Borg's lock.
+- A waiting run can be stopped only by interrupting it (Ctrl-C or SIGTERM). That
+  stops the Borg process if it has started.
+- Scheduled runs are not skipped across processes while the same job is waiting
+  or running (see #30).
+- No reservation spans backup, prune, and compact.
+- Other hosts, external processes, and unrecognized repository aliases rely on
+  Borg's own locking.
+- Cairn never runs `borg break-lock` automatically.
 
-File locks alone do not provide per-job duplicate suppression, FIFO fairness,
-durable queues, history, or safe recovery from surviving Borg subprocesses.
-Additional metadata or process controls may be necessary; do not assume a shared
-database is required.
+## Deferred design
 
-## Open design and validation
+The earlier direction proposed a per-repository lock file with an exclusive OS
+advisory lock, held across the whole workflow. The following points remain
+relevant if coordination is revisited, and must be validated before any guarantee
+is claimed:
 
-The prototype must define and test:
+1. Repository identity: hashing and normalization rules, and alias limitations.
+2. Lock directory: a per-account default under `$XDG_STATE_HOME/cairn/locks`, with
+   a system path that services set explicitly and provision. Safe opening, owner
+   and mode checks, and symlink rejection. Never fall back silently to a private
+   directory after an access error.
+3. Lock files: release the OS lock rather than the file. Never unlink or replace
+   files while a process may hold or await them.
+4. Cancellation that affects only the requesting execution, and shutdown that
+   waits for Borg to exit before releasing any reservation.
+5. Crash recovery without permanent blockage and without overlap with a surviving
+   Borg subprocess. Parent exit alone is not sufficient.
 
-1. Repository identity, hashing/normalization rules, and alias limitations.
-2. Boot/install provisioning, safe file opening, ownership/modes, authorized
-   cross-account access, and rejection of symlinks/replacement attempts.
-3. CLI/agent serialization across full workflows; multiple distinct jobs may wait.
-4. Atomic scheduled admission: skip a job already waiting/running, including
-   relevant manual work. Repository contention alone cannot identify the job.
-5. Cancellation affecting only the requesting execution, and shutdown that stops
-   remaining stages and waits for Borg before releasing the reservation.
-6. Shutdown timeout/escalation and crash recovery without permanent blockage or
-   overlap with a surviving Borg subprocess. Parent exit alone is not sufficient.
-
-Only claim these guarantees after validation. See the
-[supported environment](0002-supported-environment.md) for the release contract.
+Revisit this decision when concurrency problems appear in real use, or before
+cross-process admission (#30), which needs shared state. Only claim these
+guarantees after validation. The open coordination spike is tracked in
+[#7](https://github.com/Besi97/cairn-backup/issues/7).
