@@ -1,7 +1,7 @@
 # Command-line reference
 
-This page describes the planned Cairn command-line interface. Currently, only
-`cairn --version` is implemented; the commands below are not available yet.
+`cairn config check`, help, and version output are available. Backup execution
+and the scheduler agent are planned and are not available yet.
 
 ## Commands
 
@@ -15,7 +15,7 @@ cairn agent [--config PATH]
 - `--config PATH` selects a configuration file. Without it, Cairn discovers the
   configuration using the documented system or user default.
 - `config check` checks the configuration and reports problems. It does not run
-  backups or contact repositories.
+  backups or contact repositories. See [validation limits](configuration.md#checking-the-configuration).
 - `agent` stays running and starts jobs with schedules in the configuration.
 - `--help` shows help for Cairn or a command. `--version` prints the version.
   Both work without Borg installed.

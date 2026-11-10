@@ -57,6 +57,23 @@ func Load(explicit string) (*Config, error) {
 // another file. Otherwise the user configuration is used when present, with the
 // system configuration as the final fallback.
 func (e Environment) Load(explicit string) (*Config, error) {
+	return e.load(explicit, false)
+}
+
+// LoadValidated loads, validates, and resolves configuration. Execution preflight
+// and agent startup must use this entry point and reject errors before work starts.
+// It reads the configuration file and may load timezone data, but does not
+// access referenced files or repositories.
+func LoadValidated(explicit string) (*Config, error) {
+	return DefaultEnvironment().LoadValidated(explicit)
+}
+
+// LoadValidated uses this environment for the shared validated loading path.
+func (e Environment) LoadValidated(explicit string) (*Config, error) {
+	return e.load(explicit, true)
+}
+
+func (e Environment) load(explicit string, validate bool) (*Config, error) {
 	path, err := e.Discover(explicit)
 	if err != nil {
 		return nil, err
@@ -70,6 +87,11 @@ func (e Environment) Load(explicit string) (*Config, error) {
 	config, err := decode(path, data)
 	if err != nil {
 		return nil, err
+	}
+	if validate {
+		if err := config.Validate(); err != nil {
+			return nil, fmt.Errorf("configuration %s: %w", path, err)
+		}
 	}
 
 	absolute, err := filepath.Abs(path)

@@ -91,8 +91,9 @@ func (j *Job) SourcePaths() []string {
 
 // Schedule controls when the agent runs a job.
 type Schedule struct {
-	Cron     string `yaml:"cron"`
-	Timezone string `yaml:"timezone"`
+	Cron        string `yaml:"cron"`
+	Timezone    string `yaml:"timezone"`
+	timezoneSet bool
 }
 
 // Maintenance configures post-backup retention and compaction.
@@ -100,6 +101,7 @@ type Maintenance struct {
 	Retention          *Retention `yaml:"retention"`
 	Compact            bool       `yaml:"compact"`
 	AfterBackupWarning string     `yaml:"after_backup_warning"`
+	warningSet         bool
 }
 
 // Retention holds Borg prune rules.
@@ -110,4 +112,5 @@ type Retention struct {
 	KeepWeekly  *int   `yaml:"keep_weekly"`
 	KeepMonthly *int   `yaml:"keep_monthly"`
 	KeepYearly  *int   `yaml:"keep_yearly"`
+	withinSet   bool
 }

@@ -52,6 +52,26 @@ func decode(path string, data []byte) (*Config, error) {
 			}
 		}
 	}
+	jobs := mappingValue(root, "jobs")
+	if jobs != nil {
+		for i := 0; i < len(jobs.Content); i += 2 {
+			job := config.Jobs[jobs.Content[i].Value]
+			node := jobs.Content[i+1]
+			if job.Schedule != nil {
+				job.Schedule.timezoneSet = mappingValue(mappingValue(node, "schedule"), "timezone") != nil
+			}
+			if job.Maintenance != nil {
+				maintenance := mappingValue(node, "maintenance")
+				job.Maintenance.warningSet = mappingValue(maintenance, "after_backup_warning") != nil
+				if !job.Maintenance.warningSet {
+					job.Maintenance.AfterBackupWarning = "skip"
+				}
+				if job.Maintenance.Retention != nil {
+					job.Maintenance.Retention.withinSet = mappingValue(mappingValue(maintenance, "retention"), "keep_within") != nil
+				}
+			}
+		}
+	}
 	return &config, nil
 }
 

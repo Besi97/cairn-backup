@@ -1,0 +1,26 @@
+version: 1
+repositories:
+  offsite:
+    location: user@host.example:repository
+    identity_file: ./missing-key
+    passphrase_file: ./missing-secret
+    lock_wait: 10m
+jobs:
+  service:
+    repository: offsite
+    source_root: ./missing-data
+    sources: [service/data, service/config]
+    archive_prefix: service
+    schedule:
+      cron: '0 */15 2-6 * JAN MON-FRI'
+      timezone: Europe/Paris
+    maintenance:
+      retention:
+        keep_within: 7d
+        keep_hourly: 24
+        keep_daily: 7
+        keep_weekly: 4
+        keep_monthly: 12
+        keep_yearly: 3
+      compact: true
+      after_backup_warning: run
