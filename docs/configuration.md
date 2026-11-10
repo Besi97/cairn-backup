@@ -4,6 +4,20 @@ Cairn uses YAML configuration, format version `1`. See the
 [example](config.example.yaml) and the [JSON Schema](../cli/config.schema.yaml).
 Replace the example's paths, repository locations, and job names with your own.
 
+## Finding the configuration
+
+Cairn looks for a configuration file in this order:
+
+1. A file passed with `--config PATH`.
+2. `$XDG_CONFIG_HOME/cairn/config.yaml`, or `~/.config/cairn/config.yaml` when
+   `XDG_CONFIG_HOME` is unset or not absolute.
+3. `/etc/cairn/config.yaml`.
+
+An explicit `--config` is authoritative: if that file is missing or invalid,
+Cairn fails instead of trying another file. Otherwise the user file wins when it
+exists, and the system file is used only when the user file is absent. Cairn does
+not merge files.
+
 ## Repositories
 
 Define each Borg repository once under `repositories`. `location` is an existing
@@ -22,7 +36,23 @@ configuration for aliases, ports, and jump hosts, and verifies SSH host keys.
   seconds or minutes, from `1s` to `10m`; the default is `60s`.
 
 Relative repository, passphrase, and identity paths are resolved from the
-configuration file. Absolute paths are recommended for unattended use.
+configuration file's directory, not from the directory where you run Cairn.
+Paths may also start with `~/` or use `$VAR` and `${VAR}`; an unset or empty
+variable is an error, and command substitution is not supported. SSH locations
+are used unchanged. Absolute paths are recommended for unattended use.
+
+`sources` entries stay relative to `source_root` and are not expanded.
+
+## Secrets
+
+`passphrase_file` must contain only the passphrase. One final line break (LF or
+CRLF) is optional and removed; spaces and tabs are kept as part of the
+passphrase. Cairn rejects empty files, empty passphrases, extra lines, and NUL
+bytes, and never prints the secret in errors or logs.
+
+Cairn reads the secret when a backup runs, not at startup, so a passphrase file
+can be replaced without restarting the agent. Other configuration changes still
+require an agent restart.
 
 ## Jobs and sources
 
