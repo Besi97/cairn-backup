@@ -73,7 +73,11 @@ func Run(ctx context.Context, cfg *config.Config, name string, stdout, stderr io
 
 	archive := repository.Location + "::" + job.ArchivePrefix + "-{now:%Y-%m-%dT%H:%M:%S}"
 	args := []string{"create", "--lock-wait", strconv.Itoa(lockWait), "--stats", "--", archive}
-	args = append(args, job.Sources...)
+	// Borg reads a bare "-" as stdin even after "--", so every source is
+	// prefixed. Archive paths are unchanged by the prefix.
+	for _, source := range job.Sources {
+		args = append(args, "./"+source)
+	}
 
 	command := exec.Command(installation.Path, args...)
 	command.Dir = job.SourceRoot
@@ -103,16 +107,24 @@ func Run(ctx context.Context, cfg *config.Config, name string, stdout, stderr io
 	}
 	var exit *exec.ExitError
 	if errors.As(waitErr, &exit) {
-		switch exit.ExitCode() {
-		case 0:
-			return Succeeded, nil
-		case 1:
-			return Warned, nil
-		default:
-			return Failed, fmt.Errorf("borg create exited with status %d", exit.ExitCode())
-		}
+		return classifyExit(exit.ExitCode())
 	}
 	return Failed, fmt.Errorf("run borg create: %w", waitErr)
+}
+
+// classifyExit follows Borg's own classification, which holds in both legacy
+// and BORG_EXIT_CODES=modern modes. Status 1 and the modern warning range
+// 100 through 127 mean the operation completed with warnings. Everything else
+// that is not 0 is a failure, including modern error codes and signals.
+func classifyExit(code int) (Status, error) {
+	switch {
+	case code == 0:
+		return Succeeded, nil
+	case code == 1 || (code >= 100 && code < 128):
+		return Warned, nil
+	default:
+		return Failed, fmt.Errorf("borg create exited with status %d", code)
+	}
 }
 
 func failure(ctx context.Context, err error) (Status, error) {

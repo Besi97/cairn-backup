@@ -75,7 +75,7 @@ func TestRunRecordsArgumentsAndEnvironment(t *testing.T) {
 		t.Fatalf("status = %v, err = %v", status, err)
 	}
 
-	wantArgs := "create\n--lock-wait\n300\n--stats\n--\nssh://backup@example.invalid/srv/backups/cairn::service-{now:%Y-%m-%dT%H:%M:%S}\nservice/data\nservice/config"
+	wantArgs := "create\n--lock-wait\n300\n--stats\n--\nssh://backup@example.invalid/srv/backups/cairn::service-{now:%Y-%m-%dT%H:%M:%S}\n./service/data\n./service/config"
 	if got := read(t, dir, "args"); got != wantArgs {
 		t.Fatalf("args:\n%s\nwant:\n%s", got, wantArgs)
 	}
@@ -116,6 +116,12 @@ func TestRunExitStatusMapping(t *testing.T) {
 		{"0", Succeeded},
 		{"1", Warned},
 		{"2", Failed},
+		{"3", Failed},
+		{"99", Failed},
+		{"100", Warned},
+		{"107", Warned},
+		{"127", Warned},
+		{"128", Failed},
 		{"130", Failed},
 	} {
 		t.Run("exit "+test.exit, func(t *testing.T) {
