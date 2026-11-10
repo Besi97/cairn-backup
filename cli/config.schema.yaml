@@ -1,0 +1,155 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+title: Cairn configuration
+description: Configuration contract for Cairn 0.1.
+type: object
+additionalProperties: false
+required:
+  - version
+  - repositories
+  - jobs
+properties:
+  version:
+    const: 1
+    description: Configuration format version.
+  repositories:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: '#/$defs/identifier'
+    additionalProperties:
+      $ref: '#/$defs/repository'
+  jobs:
+    type: object
+    minProperties: 1
+    propertyNames:
+      $ref: '#/$defs/identifier'
+    additionalProperties:
+      $ref: '#/$defs/job'
+$defs:
+  identifier:
+    type: string
+    pattern: '^[a-z][a-z0-9-]{0,62}$'
+    description: Lowercase identifier used to refer to a repository or job.
+  path:
+    type: string
+    minLength: 1
+    description: Filesystem path; relative paths are resolved from the configuration file.
+  repository:
+    type: object
+    additionalProperties: false
+    required:
+      - location
+    properties:
+      location:
+        type: string
+        minLength: 1
+        description: Existing local Borg repository path or Borg SSH repository location.
+      passphrase_file:
+        $ref: '#/$defs/path'
+        description: Optional file containing the Borg repository passphrase; inline secrets are not supported.
+      identity_file:
+        $ref: '#/$defs/path'
+        description: Optional SSH private-key path. Valid only for an SSH repository; OpenSSH still verifies the host key.
+      lock_wait:
+        type: string
+        pattern: '^(?:(?:[1-9][0-9]?|[1-5][0-9]{2}|600)s|(?:[1-9]|10)m)$'
+        default: 60s
+        description: Maximum wait for a Borg lock held outside Cairn, using seconds or minutes (for example 30s or 5m). Omission means 60 seconds; the supported range is 1 second through 10 minutes.
+  job:
+    type: object
+    additionalProperties: false
+    required:
+      - repository
+      - source_root
+      - sources
+      - archive_prefix
+    properties:
+      repository:
+        $ref: '#/$defs/identifier'
+        description: Name of exactly one entry in repositories.
+      source_root:
+        $ref: '#/$defs/path'
+        description: Working directory for Borg create. Relative paths are resolved from the configuration file.
+      sources:
+        type: array
+        minItems: 1
+        uniqueItems: true
+        items:
+          type: string
+          minLength: 1
+          pattern: '^(?!/)(?!.*(?:^|/)\.\.(?:/|$)).+'
+          description: Relative path beneath source_root. All paths in a job are archived together.
+      archive_prefix:
+        type: string
+        pattern: '^[a-z][a-z0-9-]{0,62}$'
+        description: Lowercase archive-series prefix; must be unique among jobs using the same repository.
+      schedule:
+        $ref: '#/$defs/schedule'
+      maintenance:
+        $ref: '#/$defs/maintenance'
+  schedule:
+    type: object
+    additionalProperties: false
+    required:
+      - cron
+    properties:
+      cron:
+        type: string
+        pattern: '^\S+(?:\s+\S+){5}$'
+        description: Six-field cron expression in second, minute, hour, day-of-month, month, day-of-week order.
+      timezone:
+        type: string
+        minLength: 1
+        description: Optional IANA timezone name. Omission uses the machine's local timezone.
+  maintenance:
+    type: object
+    additionalProperties: false
+    anyOf:
+      - required:
+          - retention
+        properties:
+          retention:
+            $ref: '#/$defs/retention'
+      - required:
+          - compact
+        properties:
+          compact:
+            const: true
+    properties:
+      retention:
+        $ref: '#/$defs/retention'
+      compact:
+        type: boolean
+        default: false
+        description: Run Borg compact after this job's successful backup and, when configured, prune stages.
+      after_backup_warning:
+        type: string
+        enum:
+          - skip
+          - run
+        default: skip
+        description: Whether to run configured maintenance after Borg create reports a warning.
+  retention:
+    type: object
+    additionalProperties: false
+    minProperties: 1
+    properties:
+      keep_within:
+        type: string
+        pattern: '^[1-9][0-9]*[Hdwmy]$'
+        description: Borg interval, such as 7d or 4w.
+      keep_hourly:
+        type: integer
+        minimum: 1
+      keep_daily:
+        type: integer
+        minimum: 1
+      keep_weekly:
+        type: integer
+        minimum: 1
+      keep_monthly:
+        type: integer
+        minimum: 1
+      keep_yearly:
+        type: integer
+        minimum: 1

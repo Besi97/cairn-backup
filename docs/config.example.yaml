@@ -1,0 +1,60 @@
+version: 1
+
+repositories:
+  local:
+    location: /var/backups/cairn/local
+    passphrase_file: ./secrets/local.passphrase
+    lock_wait: 5m
+
+  offsite:
+    location: ssh://backup@example.invalid/srv/backups/cairn
+    passphrase_file: ./secrets/offsite.passphrase
+    identity_file: ./keys/offsite_ed25519
+
+jobs:
+  service-a-local:
+    repository: local
+    source_root: /srv/backup-inputs
+    sources:
+      - service-a/data
+      - service-a/config
+    archive_prefix: service-a
+    schedule:
+      cron: '0 0 4 * * *'
+    maintenance:
+      retention:
+        keep_daily: 7
+        keep_weekly: 4
+        keep_monthly: 6
+      compact: true
+      after_backup_warning: skip
+
+  service-b-local:
+    repository: local
+    source_root: /srv/backup-inputs
+    sources:
+      - service-b
+    archive_prefix: service-b
+    schedule:
+      cron: '0 0 4 * * *'
+      timezone: Etc/UTC
+    maintenance:
+      retention:
+        keep_within: 7d
+        keep_weekly: 4
+      after_backup_warning: skip
+
+  service-a-offsite:
+    repository: offsite
+    source_root: /srv/backup-inputs
+    sources:
+      - service-a/data
+      - service-a/config
+    archive_prefix: service-a
+    schedule:
+      cron: '0 0 4 * * *'
+      timezone: Etc/UTC
+    maintenance:
+      retention:
+        keep_monthly: 12
+        keep_yearly: 3
