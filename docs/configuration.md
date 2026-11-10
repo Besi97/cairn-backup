@@ -52,11 +52,14 @@ configuration for aliases, ports, and jump hosts, and verifies SSH host keys.
   passphrase. Inline passphrases are not supported; allow only the Cairn user to
   read this file.
 - `identity_file` is an optional path to an SSH private key, used with SSH
-  repositories. A dedicated, least-privileged account is recommended for
-  unattended use, but not required; you can run Cairn as your existing user if
-  the key is readable by that account.
+  repositories. Cairn runs SSH with `-i` pointing at this key; other SSH settings
+  come from your normal OpenSSH configuration, and host key verification stays on.
+  A dedicated, least-privileged account is recommended for unattended use, but
+  not required; you can run Cairn as your existing user if the key is readable by
+  that account.
 - `lock_wait` sets how long Borg waits for locks held outside Cairn. Use whole
-  seconds or minutes, from `1s` to `10m`; the default is `60s`.
+  seconds or minutes, from `1s` to `10m`; the default is `60s`. If the lock is
+  still held when the wait ends, the backup fails. Cairn does not retry.
 
 Relative repository, passphrase, and identity paths are resolved from the
 configuration file's directory, not from the directory where you run Cairn.
@@ -76,6 +79,32 @@ bytes, and never prints the secret in errors or logs.
 Cairn reads the secret when a backup runs, not at startup, so a passphrase file
 can be replaced without restarting the agent. Other configuration changes still
 require an agent restart.
+
+Cairn passes the passphrase to Borg in the `BORG_PASSPHRASE` environment
+variable. Other processes running as the same user can read a process's
+environment, so run Cairn under an account that only trusted processes share.
+Borg's own output does not include the passphrase.
+
+## Running a backup
+
+```sh
+cairn backup --job service-a-local --config ./config.yaml
+```
+
+Cairn runs the Borg executable found on `PATH`. Borg 1.4.5 and later below 1.5.0
+is verified. Other Borg 1 versions, including prereleases, print a warning and
+still run. Borg 2 or later, a missing `borg`, or an unrecognizable version stops
+the backup before any repository access. Install Borg yourself; Cairn does not
+bundle it.
+
+A backup creates one archive named `ARCHIVE_PREFIX-` followed by the local time
+of the run. Borg output is shown as it happens, and the final line reports the
+outcome. Press Ctrl-C (or send `SIGTERM`) to stop a running backup: Cairn stops
+Borg, waits for it to exit, and exits with code `130`.
+
+Only the named job runs. Repositories must already exist; Cairn does not create
+them. Local repositories and SSH repositories both use the existing Borg
+repository format.
 
 ## Jobs and sources
 
