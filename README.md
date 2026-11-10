@@ -4,7 +4,9 @@ Your trail to recovery.
 
 ## Documentation
 
-Architectural decisions are documented in [docs/decisions](docs/decisions/).
+The [configuration reference](docs/configuration.md) includes a complete example
+and a YAML-serialized JSON Schema. Architectural decisions are documented in
+[docs/decisions](docs/decisions/).
 
 ## License
 
