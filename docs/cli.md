@@ -1,7 +1,7 @@
 # Command-line reference
 
-`cairn config check`, help, and version output are available. Backup execution
-and the scheduler agent are planned and are not available yet.
+`cairn backup`, `cairn config check`, help, and version output are available.
+Dry-run previews and the scheduler agent are not available yet.
 
 ## Commands
 
@@ -11,7 +11,9 @@ cairn config check [--config PATH]
 cairn agent [--config PATH]
 ```
 
-- `backup` requires `--job NAME` to choose which job to run.
+- `backup` requires `--job NAME` to choose which job to run. It creates one
+  archive for that job using the local Borg executable. Cairn checks the Borg
+  version first; see [Running a backup](configuration.md#running-a-backup).
 - `--config PATH` selects a configuration file. Without it, Cairn discovers the
   configuration using the documented system or user default.
 - `config check` checks the configuration and reports problems. It does not run
@@ -22,10 +24,10 @@ cairn agent [--config PATH]
 
 ## Dry run
 
-Add `--dry-run` to `backup` to preview supported backup and prune operations
-without changing repository contents. Compaction is skipped because it has no
-non-mutating preview. A preview is an estimate, not a promise of exactly what a
-later backup will contain.
+`--dry-run` is planned for `backup` to preview backup and prune operations
+without changing repository contents. It is not available yet: `backup --dry-run`
+exits with code `2` and runs nothing. A future preview will be an estimate, not a
+promise of exactly what a later backup will contain.
 
 Prune and compact are maintenance steps, not standalone commands.
 
@@ -43,11 +45,16 @@ context to help diagnose the problem, but never print secret values.
 | `4` | Backup or agent execution failed. |
 | `130` | Interrupted by the user or system. |
 
+For `backup`, Borg's own warnings and errors appear in the output. Exit code `1`
+means Borg created the archive but reported warnings; exit code `4` means the
+archive was not created. Specific causes, such as a lock timeout or a rejected
+SSH host key, are described in the message rather than a separate exit code.
+
 ## Examples
 
 ```sh
 cairn backup --job service-a-local
-cairn backup --job service-a-local --config ./config.yaml --dry-run
+cairn backup --job service-a-local --config ./config.yaml
 cairn config check --config ./config.yaml
 cairn agent --config /etc/cairn/config.yaml
 ```
