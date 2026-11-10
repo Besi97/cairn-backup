@@ -5,6 +5,9 @@ scheduler agent.
 
 Run the following commands from `cli/`.
 
+See the [command-line reference](../docs/cli.md) for the planned commands and
+their behavior. Only `--version` is currently implemented.
+
 ## Build
 
 ```sh
