@@ -1,7 +1,7 @@
 package config
 
 import (
-	"fmt"
+	"errors"
 	"strings"
 )
 
@@ -46,27 +46,27 @@ func ExpandPath(value string, env Environment) (string, error) {
 		case value[i] == '~' && i == 0 && (len(value) == 1 || value[i+1] == '/'):
 			home, err := env.homeDir()
 			if err != nil {
-				return "", fmt.Errorf("expand %q: %w", value, err)
+				return "", errors.New("expand path: cannot determine home directory")
 			}
 			if home == "" {
-				return "", fmt.Errorf("expand %q: home directory is not set", value)
+				return "", errors.New("expand path: home directory is not set")
 			}
 			builder.WriteString(home)
 			i++
 
 		case value[i] == '$' && i+1 < len(value) && value[i+1] == '(':
-			return "", fmt.Errorf("expand %q: command substitution is not supported", value)
+			return "", errors.New("expand path: command substitution is not supported")
 
 		case value[i] == '$' && i+1 < len(value) && value[i+1] == '{':
 			end := strings.IndexByte(value[i+2:], '}')
 			if end < 0 {
-				return "", fmt.Errorf("expand %q: unterminated variable reference", value)
+				return "", errors.New("expand path: unterminated variable reference")
 			}
 			name := value[i+2 : i+2+end]
 			if !validName(name) {
-				return "", fmt.Errorf("expand %q: invalid variable name %q", value, name)
+				return "", errors.New("expand path: invalid variable name")
 			}
-			expanded, err := expandVariable(value, name, env)
+			expanded, err := expandVariable(name, env)
 			if err != nil {
 				return "", err
 			}
@@ -79,7 +79,7 @@ func ExpandPath(value string, env Environment) (string, error) {
 				end++
 			}
 			name := value[i+1 : end]
-			expanded, err := expandVariable(value, name, env)
+			expanded, err := expandVariable(name, env)
 			if err != nil {
 				return "", err
 			}
@@ -94,10 +94,10 @@ func ExpandPath(value string, env Environment) (string, error) {
 	return builder.String(), nil
 }
 
-func expandVariable(value, name string, env Environment) (string, error) {
+func expandVariable(name string, env Environment) (string, error) {
 	variable := env.getenv(name)
 	if variable == "" {
-		return "", fmt.Errorf("expand %q: variable %s is unset or empty", value, name)
+		return "", errors.New("expand path: referenced variable is unset or empty")
 	}
 	return variable, nil
 }

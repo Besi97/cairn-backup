@@ -18,6 +18,29 @@ Cairn fails instead of trying another file. Otherwise the user file wins when it
 exists, and the system file is used only when the user file is absent. Cairn does
 not merge files.
 
+## Checking the configuration
+
+```sh
+cairn config check --config ./config.yaml
+```
+
+Omit `--config` to use normal discovery. A valid configuration prints a short
+confirmation and exits with code `0`. Loading or validation failures are written
+to stderr and exit with code `3`; invalid command usage exits with code `2`.
+Independent semantic errors are reported together in a stable order. YAML and
+loading errors stop the check immediately.
+
+The check validates required fields, references, supported values, schedules,
+retention rules, and combinations such as SSH-only identity files and unique
+archive prefixes per repository. Local path references are expanded and resolved.
+The configuration file itself must be readable and regular.
+
+This is static validation, not an operational test. Cairn does not read
+passphrase or SSH-key contents, check access to configured sources or files,
+run Borg or SSH, or contact repositories. Missing source directories,
+repositories, keys, and secret files do not make this check fail. Successful
+validation does not establish that a backup can run or credentials will work.
+
 ## Repositories
 
 Define each Borg repository once under `repositories`. `location` is an existing
@@ -76,6 +99,12 @@ second, minute, hour, day of month, month, day of week. `timezone` is an
 optional IANA timezone such as `Etc/UTC`. If omitted, Cairn uses the machine's
 local timezone. For example, `0 0 4 * * *` runs daily at 04:00.
 
+Cron fields support lists, ranges, steps, and month/day names. Five-field cron,
+shorthand such as `@daily`, and embedded `TZ=` or `CRON_TZ=` directives are not
+supported; use `timezone` instead. An explicit timezone must be a recognized IANA
+name, not an empty string or `Local`. Timezone data is bundled with Cairn for
+systems without an installed timezone database.
+
 ## Maintenance
 
 `maintenance` is optional. If present, include `retention` or set
@@ -89,3 +118,9 @@ warning. It accepts `skip` (the default) or `run`.
 
 Compression is not configurable; Cairn uses Borg's default, `lz4`. Arbitrary
 Borg arguments are not supported.
+
+## Agent configuration changes
+
+Configuration changes require an explicit agent restart. Cairn 0.1.0 does not
+hot-reload configuration. Replacing the contents of a configured passphrase file
+is the exception: the next backup reads the replacement on demand.

@@ -5,8 +5,9 @@ scheduler agent.
 
 Run the following commands from `cli/`.
 
-See the [command-line reference](../docs/cli.md) for the planned commands and
-their behavior. Only `--version` is currently implemented.
+See the [command-line reference](../docs/cli.md) for commands and their behavior.
+Configuration checking, help, and version output are available; backup execution
+and the agent are not yet implemented.
 
 ## Build
 
@@ -18,6 +19,7 @@ go build -o bin/cairn ./cmd/cairn
 
 ```sh
 ./bin/cairn --version
+./bin/cairn config check --config ../docs/config.example.yaml
 ```
 
 ## Checks
@@ -31,3 +33,16 @@ make check
 This runs formatting, vet, Staticcheck, govulncheck, race-enabled tests, and
 Linux amd64/arm64 builds. GitHub Actions runs the same checks on pull requests
 and pushes to `main`.
+
+## Configuration preflight
+
+Execution preflight and agent startup must call `config.LoadValidated` (or its
+environment-aware equivalent) and reject errors before starting work. It uses
+the shared loader, validates semantics before path resolution, and does not read
+referenced files or contact repositories. `Config.Validate` is also available for
+in-memory configuration; validate before normalizing paths. Do not substitute the
+loading-only `config.Load` for validated preflight.
+
+Use `config.ParseSchedule` for the agent's cron interpretation so scheduling and
+validation accept the same six-field syntax. Agent configuration changes require
+an explicit restart; no hot reload is supported in 0.1.0.
