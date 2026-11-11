@@ -3,23 +3,43 @@ package backup
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Besi97/cairn-backup/cli/internal/config"
 )
 
 // realFixture is a local repository created with the real Borg executable,
-// configured for one job. It skips the test when borg is not on PATH.
+// configured for one job. See requireBorg for when its tests are skipped.
 type realFixture struct {
 	t          *testing.T
 	root       string
 	repository string
 	cfg        *config.Config
+}
+
+// requireBorg skips the calling test when borg is not on PATH. With
+// CAIRN_REQUIRE_BORG=1 it fails instead, so CI cannot pass while skipping these
+// tests.
+func requireBorg(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("borg"); err == nil {
+		return
+	}
+	if os.Getenv("CAIRN_REQUIRE_BORG") == "1" {
+		t.Fatal("borg is not installed, and CAIRN_REQUIRE_BORG=1 requires it")
+	}
+	t.Skip("borg is not installed")
 }
 
 func newRealFixture(t *testing.T, sources []string, files map[string]string) *realFixture {
@@ -30,9 +50,7 @@ func newRealFixture(t *testing.T, sources []string, files map[string]string) *re
 // newRealFixtureWithJob is newRealFixture with extra lines appended to the job.
 func newRealFixtureWithJob(t *testing.T, sources []string, files map[string]string, jobExtra string) *realFixture {
 	t.Helper()
-	if _, err := exec.LookPath("borg"); err != nil {
-		t.Skip("borg is not installed")
-	}
+	requireBorg(t)
 	root := t.TempDir()
 	t.Setenv("BORG_BASE_DIR", filepath.Join(root, "borg-base"))
 
@@ -286,6 +304,246 @@ func TestRealBorgWarningExitCodes(t *testing.T) {
 				t.Fatalf("archives = %q", archives)
 			}
 			assertRestored(t, fixture.restore(archives[0]), files)
+		})
+	}
+}
+
+// createArchive creates an archive named name from source, a path relative to
+// the inputs directory.
+func (f *realFixture) createArchive(name, source string) {
+	f.t.Helper()
+	if out, err := f.borg(filepath.Join(f.root, "inputs"), "create", f.repository+"::"+name, source); err != nil {
+		f.t.Fatalf("create %s: %v\n%s", name, err, out)
+	}
+}
+
+// seedPrunable adds two service archives that keep_hourly: 1 would prune, and an
+// archive of random data that is then deleted without compacting. A real
+// compaction therefore has space to reclaim and changes the repository.
+func (f *realFixture) seedPrunable() {
+	f.t.Helper()
+	f.createArchive("service-2020-01-01T10:00:00", "./service/data")
+	f.createArchive("service-2020-01-01T10:30:00", "./service/data")
+
+	unique := filepath.Join(f.root, "inputs", "unique")
+	if err := os.MkdirAll(unique, 0o700); err != nil {
+		f.t.Fatal(err)
+	}
+	data := make([]byte, 1<<20)
+	if _, err := rand.Read(data); err != nil {
+		f.t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(unique, "blob"), data, 0o600); err != nil {
+		f.t.Fatal(err)
+	}
+	f.createArchive("other-2020-01-01T09:00:00", "./unique")
+	if err := os.RemoveAll(unique); err != nil {
+		f.t.Fatal(err)
+	}
+	if out, err := f.borg(f.root, "delete", f.repository+"::other-2020-01-01T09:00:00"); err != nil {
+		f.t.Fatalf("delete: %v\n%s", err, out)
+	}
+}
+
+// repositorySnapshot records each regular file's size, modification time, and
+// SHA-256, and each directory by name. Directory modification times are left out
+// because Borg's lock directory changes them without changing repository
+// content. Top-level lock.* entries are Borg's lock artifacts and are left out
+// too.
+func repositorySnapshot(t *testing.T, repository string) map[string]string {
+	t.Helper()
+	snapshot := make(map[string]string)
+	err := filepath.WalkDir(repository, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(repository, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		if strings.HasPrefix(rel, "lock.") {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if entry.IsDir() {
+			snapshot[rel+"/"] = "dir"
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		snapshot[rel] = fmt.Sprintf("size=%d mtime=%d sha256=%x", info.Size(), info.ModTime().UnixNano(), sha256.Sum256(data))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snapshot
+}
+
+// snapshotChanges lists the entries that were added, removed, or changed between
+// two snapshots.
+func snapshotChanges(before, after map[string]string) []string {
+	var changes []string
+	for name, value := range before {
+		if got, ok := after[name]; !ok {
+			changes = append(changes, "removed "+name)
+		} else if got != value {
+			changes = append(changes, "changed "+name)
+		}
+	}
+	for name := range after {
+		if _, ok := before[name]; !ok {
+			changes = append(changes, "added "+name)
+		}
+	}
+	slices.Sort(changes)
+	return changes
+}
+
+// TestRealBorgPreviewLeavesRepositoryUnchanged checks that a preview changes no
+// repository file, directory, or archive, with retention and compaction
+// configured. Each case then runs a real backup on the same repository, which
+// must change the snapshot. A snapshot that cannot see changes cannot pass.
+func TestRealBorgPreviewLeavesRepositoryUnchanged(t *testing.T) {
+	const retention = "    maintenance:\n      retention:\n        keep_hourly: 1\n"
+	const compactNote = "Compaction is not previewed and was not run."
+	for _, test := range []struct {
+		name            string
+		sources         []string
+		jobExtra        string
+		wantStatus      Status
+		wantPrune       bool
+		wantCompactNote bool
+	}{
+		{"retention only", []string{"service/data"}, retention, Succeeded, true, false},
+		{"compaction only", []string{"service/data"}, "    maintenance:\n      compact: true\n", Succeeded, false, true},
+		{"retention and compaction", []string{"service/data"}, retention + "      compact: true\n", Succeeded, true, true},
+		{"retention and compaction after a backup warning", []string{"service/data", "missing"}, retention + "      compact: true\n      after_backup_warning: run\n", Warned, true, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newRealFixtureWithJob(t, test.sources, map[string]string{"service/data/alpha.txt": "alpha contents"}, test.jobExtra)
+			fixture.seedPrunable()
+			before := repositorySnapshot(t, fixture.repository)
+			archives := fixture.archives()
+
+			var stdout, stderr bytes.Buffer
+			status, err := Preview(context.Background(), fixture.cfg, "service", &stdout, &stderr)
+			output := stdout.String() + stderr.String()
+			if status != test.wantStatus || err != nil {
+				t.Fatalf("status = %v, err = %v\n%s", status, err, output)
+			}
+			if !strings.Contains(output, "- service/data/alpha.txt") {
+				t.Fatalf("preview did not list the source:\n%s", output)
+			}
+			if got := strings.Contains(output, "Would prune"); got != test.wantPrune {
+				t.Fatalf("prune previewed = %v, want %v:\n%s", got, test.wantPrune, output)
+			}
+			if got := strings.Contains(stdout.String(), compactNote); got != test.wantCompactNote {
+				t.Fatalf("compaction note = %v, want %v:\n%s", got, test.wantCompactNote, output)
+			}
+
+			if changes := snapshotChanges(before, repositorySnapshot(t, fixture.repository)); len(changes) != 0 {
+				t.Fatalf("preview changed the repository: %v", changes)
+			}
+			if got := fixture.archives(); !slices.Equal(got, archives) {
+				t.Fatalf("archives = %q, want %q", got, archives)
+			}
+
+			if status, err := Run(context.Background(), fixture.cfg, "service", io.Discard, io.Discard); status != test.wantStatus || err != nil {
+				t.Fatalf("backup status = %v, err = %v", status, err)
+			}
+			if len(snapshotChanges(before, repositorySnapshot(t, fixture.repository))) == 0 {
+				t.Fatal("a real backup did not change the snapshot; the snapshot cannot detect changes")
+			}
+		})
+	}
+}
+
+// TestRealBorgPreviewReportsLockContention holds Borg's exclusive repository lock
+// in another process. A prune preview must wait for lock_wait and then fail, while
+// a create preview takes no lock and still succeeds.
+func TestRealBorgPreviewReportsLockContention(t *testing.T) {
+	fixture := newRealFixtureWithJob(t, []string{"service/data"}, map[string]string{"service/data/alpha.txt": "alpha"},
+		"    maintenance:\n      retention:\n        keep_hourly: 1\n")
+	fixture.cfg.Repositories["local"].LockWait = "1s"
+
+	holder := exec.Command("borg", "with-lock", "--lock-wait", "60", fixture.repository, "sleep", "10")
+	holder.Dir = fixture.root
+	holder.Env = append(os.Environ(), "BORG_PASSPHRASE=round-trip-passphrase")
+	if err := holder.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = holder.Wait() })
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(filepath.Join(fixture.repository, "lock.exclusive")); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("borg with-lock did not take the repository lock")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	var stdout, stderr bytes.Buffer
+	status, err := Preview(context.Background(), fixture.cfg, "service", &stdout, &stderr)
+	output := stdout.String() + stderr.String()
+	if status != Failed || err == nil || !strings.Contains(output, "(timeout)") {
+		t.Fatalf("prune preview status = %v, err = %v:\n%s", status, err, output)
+	}
+
+	fixture.cfg.Jobs["service"].Maintenance = nil
+	stdout.Reset()
+	stderr.Reset()
+	status, err = Preview(context.Background(), fixture.cfg, "service", &stdout, &stderr)
+	if status != Succeeded || err != nil {
+		t.Fatalf("create preview status = %v, err = %v:\n%s", status, err, stdout.String()+stderr.String())
+	}
+}
+
+// TestRealBorgPreviewSourceWarning checks that a missing source makes the create
+// preview warn. Maintenance is then skipped unless after_backup_warning is run,
+// as in a real backup.
+func TestRealBorgPreviewSourceWarning(t *testing.T) {
+	const retention = "    maintenance:\n      retention:\n        keep_hourly: 1\n"
+	for _, test := range []struct {
+		name      string
+		jobExtra  string
+		wantPrune bool
+	}{
+		{"skipped by default", retention, false},
+		{"run when configured", retention + "      after_backup_warning: run\n", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newRealFixtureWithJob(t, []string{"service/data", "missing"}, map[string]string{"service/data/alpha.txt": "alpha"}, test.jobExtra)
+			fixture.seedPrunable()
+
+			var stdout, stderr bytes.Buffer
+			status, err := Preview(context.Background(), fixture.cfg, "service", &stdout, &stderr)
+			output := stdout.String() + stderr.String()
+			if status != Warned || err != nil {
+				t.Fatalf("status = %v, err = %v:\n%s", status, err, output)
+			}
+			if !strings.Contains(output, "missing") {
+				t.Fatalf("preview did not report the missing source:\n%s", output)
+			}
+			if got := strings.Contains(output, "Would prune"); got != test.wantPrune {
+				t.Fatalf("prune previewed = %v, want %v:\n%s", got, test.wantPrune, output)
+			}
+			if got := strings.Contains(stdout.String(), "Maintenance was not previewed:"); got == test.wantPrune {
+				t.Fatalf("maintenance skip note = %v with prune previewed = %v:\n%s", got, test.wantPrune, output)
+			}
 		})
 	}
 }

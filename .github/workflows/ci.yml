@@ -23,6 +23,7 @@ jobs:
         working-directory: cli
     env:
       GOTOOLCHAIN: local
+      CAIRN_REQUIRE_BORG: "1"
     steps:
       - uses: actions/checkout@v7
         with:
@@ -32,6 +33,18 @@ jobs:
           go-version: '1.27.3'
           # The scaffold has no dependencies or go.sum yet.
           cache: false
+      - name: Install Borg 1.4.5
+        env:
+          # Digest published with the borgbackup 1.4.5 release.
+          BORG_SHA256: 1410e28609be3080d0e3ab27a78f5c586a29fd0c75c2aa6415fcde1293bcd923
+        run: |
+          mkdir -p "$RUNNER_TEMP/borg-bin"
+          curl --fail --silent --show-error --location --output "$RUNNER_TEMP/borg-bin/borg" \
+            https://github.com/borgbackup/borg/releases/download/1.4.5/borg-linux-glibc235-x86_64-gh
+          echo "$BORG_SHA256  $RUNNER_TEMP/borg-bin/borg" | sha256sum --check --strict
+          chmod 0755 "$RUNNER_TEMP/borg-bin/borg"
+          test "$("$RUNNER_TEMP/borg-bin/borg" --version)" = "borg 1.4.5"
+          echo "$RUNNER_TEMP/borg-bin" >> "$GITHUB_PATH"
       - name: Check formatting
         run: make fmt-check
       - name: Vet

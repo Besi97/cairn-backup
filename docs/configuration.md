@@ -102,6 +102,11 @@ of the run. Borg output is shown as it happens, and the final line reports the
 outcome. Press Ctrl-C (or send `SIGTERM`) to stop a running backup: Cairn stops
 Borg, waits for it to exit, and exits with code `130`.
 
+Add `--dry-run` to preview a run without changing the repository. The preview
+lists what Borg would archive and, when retention is configured, which archives
+a prune would remove. Compaction is not previewed. See
+[Dry run](cli.md#dry-run) for the preview's limits.
+
 Only the named job runs. Repositories must already exist; Cairn does not create
 them. Local repositories and SSH repositories both use the existing Borg
 repository format.
@@ -146,7 +151,7 @@ Prune runs only when `retention` is configured, and it considers only this job's
 archives. Compaction runs after a clean backup and, when `retention` is
 configured, after a clean prune. A prune warning or failure skips compaction.
 Compaction works on the whole repository, so it also reclaims space from other
-jobs' deleted archives.
+jobs' deleted archives. A dry run never runs or previews compaction.
 
 `after_backup_warning` controls maintenance when archive creation reports a
 warning. It accepts `skip` (the default) or `run`. A backup failure never runs

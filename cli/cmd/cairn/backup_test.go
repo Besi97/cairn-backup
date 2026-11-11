@@ -53,7 +53,9 @@ func TestBackupCommand(t *testing.T) {
 		{"empty config", []string{"backup", "--job", "service", "--config="}, "0", 2, "usage:"},
 		{"positional argument", []string{"backup", "--job", "service", "LEAK"}, "0", 2, "usage:"},
 		{"unknown flag", []string{"backup", "--job", "service", "--LEAK"}, "0", 2, "usage:"},
-		{"dry run rejected", []string{"backup", "--job", "service", "--dry-run", "--config", path}, "0", 2, "not available yet"},
+		{"dry run success", []string{"backup", "--job", "service", "--dry-run", "--config", path}, "0", 0, "The repository was not changed."},
+		{"dry run warning", []string{"backup", "--job", "service", "--dry-run", "--config", path}, "1", 1, "completed with warnings. The repository was not changed."},
+		{"dry run failure", []string{"backup", "--job", "service", "--dry-run", "--config", path}, "2", 4, "dry run of job \"service\" failed"},
 		{"unknown job", []string{"backup", "--job", "absent", "--config", path}, "0", 2, "not configured"},
 		{"invalid configuration", []string{"backup", "--job", "service", "--config", filepath.Join(t.TempDir(), "missing.yaml")}, "0", 3, "configuration file"},
 		{"help", []string{"backup", "--help"}, "0", 0, "usage:"},
@@ -73,6 +75,44 @@ func TestBackupCommand(t *testing.T) {
 				t.Fatalf("echoed sensitive argument: %s", output)
 			}
 		})
+	}
+}
+
+func TestBackupDryRunOutput(t *testing.T) {
+	env, path := backupFixture(t)
+	dir := t.TempDir()
+	script := "#!/bin/sh\ncase \"$1\" in --version) echo 'borg 1.4.5'; exit 0 ;; esac\nprintf '%s\\n' \"$@\" > \"" + dir + "/args\"\nexit \"${FAKE_BORG_EXIT:-0}\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "borg"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"backup", "--job", "service", "--dry-run", "--config", path}, &stdout, &stderr, env); code != 0 {
+		t.Fatalf("exit = %d: stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	args, err := os.ReadFile(filepath.Join(dir, "args"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "create\n--dry-run\n--list\n--\n"; !strings.HasPrefix(string(args), want) {
+		t.Fatalf("borg args = %q, want prefix %q", args, want)
+	}
+	if !strings.Contains(stdout.String(), "Would create archive \"service-") {
+		t.Fatalf("stdout does not name the archive: %q", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "Preview limits:\n") || !strings.Contains(stdout.String(), "Compaction is not previewed.") {
+		t.Fatalf("stdout does not state preview limits: %q", stdout.String())
+	}
+
+	t.Setenv("FAKE_BORG_EXIT", "2")
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"backup", "--job", "service", "--dry-run", "--config", path}, &stdout, &stderr, env); code != 4 {
+		t.Fatalf("exit = %d", code)
+	}
+	if strings.Contains(stdout.String()+stderr.String(), "Preview limits") {
+		t.Fatalf("failed preview printed limits: %q", stdout.String())
 	}
 }
 
