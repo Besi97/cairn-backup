@@ -79,8 +79,35 @@ func Run(ctx context.Context, cfg *config.Config, name string, stdout, stderr io
 		args = append(args, "./"+source)
 	}
 
-	command := exec.Command(installation.Path, args...)
-	command.Dir = job.SourceRoot
+	status, err := runBorg(ctx, installation.Path, env, job.SourceRoot, args, stdout, stderr)
+	if err != nil || status == Interrupted {
+		return status, err
+	}
+	if job.Maintenance == nil || job.Maintenance.Retention == nil {
+		return status, nil
+	}
+	if status == Warned && job.Maintenance.AfterBackupWarning != "run" {
+		return Warned, nil
+	}
+	if ctx.Err() != nil {
+		return Interrupted, nil
+	}
+
+	pruneStatus, err := runBorg(ctx, installation.Path, env, job.SourceRoot, pruneArgs(repository.Location, lockWait, job), stdout, stderr)
+	if err != nil || pruneStatus == Interrupted {
+		return pruneStatus, err
+	}
+	if status == Warned || pruneStatus == Warned {
+		return Warned, nil
+	}
+	return Succeeded, nil
+}
+
+// runBorg runs one Borg command, forwards its output, and classifies its exit.
+// When ctx is cancelled, it sends SIGTERM and waits for Borg to exit.
+func runBorg(ctx context.Context, path string, env []string, dir string, args []string, stdout, stderr io.Writer) (Status, error) {
+	command := exec.Command(path, args...)
+	command.Dir = dir
 	command.Env = env
 	command.Stdout = stdout
 	command.Stderr = stderr
@@ -107,9 +134,34 @@ func Run(ctx context.Context, cfg *config.Config, name string, stdout, stderr io
 	}
 	var exit *exec.ExitError
 	if errors.As(waitErr, &exit) {
-		return classifyExit(exit.ExitCode())
+		return classifyExit(args[0], exit.ExitCode())
 	}
-	return Failed, fmt.Errorf("run borg create: %w", waitErr)
+	return Failed, fmt.Errorf("run borg %s: %w", args[0], waitErr)
+}
+
+// pruneArgs builds a prune command limited to this job's archives. Only the
+// retention rules that are configured are passed to Borg.
+func pruneArgs(location string, lockWait int, job *config.Job) []string {
+	retention := job.Maintenance.Retention
+	args := []string{"prune", "--lock-wait", strconv.Itoa(lockWait), "--glob-archives", archiveGlob(job.ArchivePrefix)}
+	if retention.KeepWithin != "" {
+		args = append(args, "--keep-within", retention.KeepWithin)
+	}
+	for _, rule := range []struct {
+		flag  string
+		value *int
+	}{
+		{"--keep-hourly", retention.KeepHourly},
+		{"--keep-daily", retention.KeepDaily},
+		{"--keep-weekly", retention.KeepWeekly},
+		{"--keep-monthly", retention.KeepMonthly},
+		{"--keep-yearly", retention.KeepYearly},
+	} {
+		if rule.value != nil {
+			args = append(args, rule.flag, strconv.Itoa(*rule.value))
+		}
+	}
+	return append(args, "--", location)
 }
 
 // archiveGlob selects the archives created for one archive prefix. The
@@ -123,14 +175,14 @@ func archiveGlob(prefix string) string {
 // and BORG_EXIT_CODES=modern modes. Status 1 and the modern warning range
 // 100 through 127 mean the operation completed with warnings. Everything else
 // that is not 0 is a failure, including modern error codes and signals.
-func classifyExit(code int) (Status, error) {
+func classifyExit(verb string, code int) (Status, error) {
 	switch {
 	case code == 0:
 		return Succeeded, nil
 	case code == 1 || (code >= 100 && code < 128):
 		return Warned, nil
 	default:
-		return Failed, fmt.Errorf("borg create exited with status %d", code)
+		return Failed, fmt.Errorf("borg %s exited with status %d", verb, code)
 	}
 }
 
