@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
 	"github.com/Besi97/cairn-backup/cli/internal/config"
@@ -37,6 +38,18 @@ const (
 // Borg's output goes to stdout and stderr. The passphrase is passed only in the
 // environment, and Cairn never writes it to either stream.
 func Run(ctx context.Context, cfg *config.Config, name string, stdout, stderr io.Writer) (Status, error) {
+	return execute(ctx, cfg, name, false, stdout, stderr)
+}
+
+// Preview reports what Run would do without changing the repository. Archive
+// creation uses Borg's dry-run listing, which opens no repository and takes no
+// lock. A prune preview takes Borg's repository lock and honors lock_wait, as a
+// real prune does. Compaction is never run or previewed. Status follows Run.
+func Preview(ctx context.Context, cfg *config.Config, name string, stdout, stderr io.Writer) (Status, error) {
+	return execute(ctx, cfg, name, true, stdout, stderr)
+}
+
+func execute(ctx context.Context, cfg *config.Config, name string, dryRun bool, stdout, stderr io.Writer) (Status, error) {
 	if cfg == nil || cfg.Jobs[name] == nil {
 		return Failed, fmt.Errorf("job %q is not configured", name)
 	}
@@ -72,14 +85,10 @@ func Run(ctx context.Context, cfg *config.Config, name string, stdout, stderr io
 	}
 
 	archive := repository.Location + "::" + job.ArchivePrefix + "-{now:%Y-%m-%dT%H:%M:%S}"
-	args := []string{"create", "--lock-wait", strconv.Itoa(lockWait), "--stats", "--", archive}
-	// Borg reads a bare "-" as stdin even after "--", so every source is
-	// prefixed. Archive paths are unchanged by the prefix.
-	for _, source := range job.Sources {
-		args = append(args, "./"+source)
+	if dryRun {
+		fmt.Fprintf(stdout, "Would create archive %q.\n", job.ArchivePrefix+"-"+time.Now().Format(archiveTimeLayout))
 	}
-
-	status, err := runBorg(ctx, installation.Path, env, job.SourceRoot, args, stdout, stderr)
+	status, err := runBorg(ctx, installation.Path, env, job.SourceRoot, createArgs(archive, job, lockWait, dryRun), stdout, stderr)
 	if err != nil || status == Interrupted {
 		return status, err
 	}
@@ -88,6 +97,9 @@ func Run(ctx context.Context, cfg *config.Config, name string, stdout, stderr io
 		return status, nil
 	}
 	if status == Warned && maintenance.AfterBackupWarning != "run" {
+		if dryRun {
+			fmt.Fprintln(stdout, "Maintenance was not previewed: the backup reported warnings and after_backup_warning is skip.")
+		}
 		return Warned, nil
 	}
 	if ctx.Err() != nil {
@@ -97,7 +109,7 @@ func Run(ctx context.Context, cfg *config.Config, name string, stdout, stderr io
 	// Compaction waits for a clean prune. Without retention, it follows the
 	// backup directly.
 	if maintenance.Retention != nil {
-		pruneStatus, err := runBorg(ctx, installation.Path, env, job.SourceRoot, pruneArgs(repository.Location, lockWait, job), stdout, stderr)
+		pruneStatus, err := runBorg(ctx, installation.Path, env, job.SourceRoot, pruneArgs(repository.Location, lockWait, job, dryRun), stdout, stderr)
 		if err != nil || pruneStatus != Succeeded {
 			return pruneStatus, err
 		}
@@ -107,6 +119,10 @@ func Run(ctx context.Context, cfg *config.Config, name string, stdout, stderr io
 	}
 	if ctx.Err() != nil {
 		return Interrupted, nil
+	}
+	if dryRun {
+		fmt.Fprintln(stdout, "Compaction is not previewed and was not run.")
+		return status, nil
 	}
 
 	compactStatus, err := runBorg(ctx, installation.Path, env, job.SourceRoot, compactArgs(repository.Location, lockWait), stdout, stderr)
@@ -155,6 +171,25 @@ func runBorg(ctx context.Context, path string, env []string, dir string, args []
 	return Failed, fmt.Errorf("run borg %s: %w", args[0], waitErr)
 }
 
+// archiveTimeLayout matches Borg's {now:%Y-%m-%dT%H:%M:%S} archive name suffix.
+const archiveTimeLayout = "2006-01-02T15:04:05"
+
+// createArgs builds a create command for the job's sources. A preview lists the
+// sources without --lock-wait or --stats: Borg's create --dry-run opens no
+// repository and ignores --stats.
+func createArgs(archive string, job *config.Job, lockWait int, dryRun bool) []string {
+	args := []string{"create", "--lock-wait", strconv.Itoa(lockWait), "--stats", "--", archive}
+	if dryRun {
+		args = []string{"create", "--dry-run", "--list", "--", archive}
+	}
+	// Borg reads a bare "-" as stdin even after "--", so every source is
+	// prefixed. Archive paths are unchanged by the prefix.
+	for _, source := range job.Sources {
+		args = append(args, "./"+source)
+	}
+	return args
+}
+
 // compactArgs builds a compact command. Borg compacts the whole repository, so
 // space from other jobs' deleted archives is reclaimed as well.
 func compactArgs(location string, lockWait int) []string {
@@ -162,10 +197,15 @@ func compactArgs(location string, lockWait int) []string {
 }
 
 // pruneArgs builds a prune command limited to this job's archives. Only the
-// retention rules that are configured are passed to Borg.
-func pruneArgs(location string, lockWait int, job *config.Job) []string {
+// retention rules that are configured are passed to Borg. A preview lists the
+// archives Borg would remove without removing them.
+func pruneArgs(location string, lockWait int, job *config.Job, dryRun bool) []string {
 	retention := job.Maintenance.Retention
-	args := []string{"prune", "--lock-wait", strconv.Itoa(lockWait), "--glob-archives", archiveGlob(job.ArchivePrefix)}
+	args := []string{"prune"}
+	if dryRun {
+		args = append(args, "--dry-run", "--list")
+	}
+	args = append(args, "--lock-wait", strconv.Itoa(lockWait), "--glob-archives", archiveGlob(job.ArchivePrefix))
 	if retention.KeepWithin != "" {
 		args = append(args, "--keep-within", retention.KeepWithin)
 	}

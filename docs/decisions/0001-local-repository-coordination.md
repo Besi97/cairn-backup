@@ -23,6 +23,9 @@ and safety validation work that early use does not need.
 - Backup, prune, and compact are not reserved as one workflow. Another job may run
   a Borg command between stages; Borg serializes each command. A failed backup
   still stops maintenance (see [supported environment](0002-supported-environment.md)).
+- Dry-run previews add no coordination. A create preview takes no lock and ignores
+  contention. A prune preview takes Borg's exclusive lock and honors `lock_wait`,
+  like a real prune. Compaction never runs in a preview.
 - Scheduled runs of one job do not overlap within one agent process (agent work
   in [#8](https://github.com/Besi97/cairn-backup/issues/8)).
 - Cross-process admission, which skips a scheduled run while the same job is

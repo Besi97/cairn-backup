@@ -6,8 +6,8 @@ scheduler agent.
 Run the following commands from `cli/`.
 
 See the [command-line reference](../docs/cli.md) for commands and their behavior.
-Configuration checking, manual backups, help, and version output are available;
-dry-run previews and the agent are not yet implemented.
+Configuration checking, manual backups, dry-run previews, help, and version output
+are available; the agent is not yet implemented.
 
 ## Build
 
@@ -34,10 +34,11 @@ This runs formatting, vet, Staticcheck, govulncheck, race-enabled tests, and
 Linux amd64/arm64 builds. GitHub Actions runs the same checks on pull requests
 and pushes to `main`.
 
-Most backup tests use a fake `borg` script. The real-Borg round-trip test in
-`internal/backup` runs only when Borg 1.4.5 or later is on `PATH`; otherwise it is
-skipped. CI does not install Borg yet. SSH host-key and credential behavior is
-checked manually against a real SSH server.
+Most backup tests use a fake `borg` script. The real-Borg tests in
+`internal/backup` run only when `borg` is on `PATH`; otherwise they are skipped.
+Set `CAIRN_REQUIRE_BORG=1` to make a missing `borg` a failure instead, as CI does
+with Borg 1.4.5. SSH host-key and credential behavior is checked manually against
+a real SSH server.
 
 ## Configuration preflight
 

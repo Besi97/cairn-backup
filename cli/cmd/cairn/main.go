@@ -16,7 +16,7 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, config.DefaultEnvironment()))
 }
 
-const usage = "usage: cairn [--help | --version]\n       cairn backup --job NAME [--config PATH]\n       cairn config check [--config PATH]\n"
+const usage = "usage: cairn [--help | --version]\n       cairn backup --job NAME [--config PATH] [--dry-run]\n       cairn config check [--config PATH]\n"
 const checkUsage = "usage: cairn config check [--config PATH]\n"
 
 func run(args []string, stdout, stderr io.Writer, env config.Environment) int {

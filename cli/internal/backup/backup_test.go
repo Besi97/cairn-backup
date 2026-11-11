@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
@@ -261,6 +262,146 @@ func TestRunPruneArguments(t *testing.T) {
 	want := "prune\n--lock-wait\n60\n--glob-archives\nservice-????-??-??T??:??:??\n--keep-within\n7d\n--keep-daily\n7\n--keep-yearly\n2\n--\n" + cfg.Repositories["local"].Location
 	if got := read(t, dir, "prune-args"); got != want {
 		t.Fatalf("prune args = %q, want %q", got, want)
+	}
+}
+
+func TestPreviewCreateArguments(t *testing.T) {
+	dir := fakeBorg(t, recordCreate)
+	cfg, _ := fixture(t, "./repository", "    lock_wait: 5m\n")
+	if status, err := Preview(context.Background(), cfg, "service", io.Discard, io.Discard); status != Succeeded || err != nil {
+		t.Fatalf("status = %v, err = %v", status, err)
+	}
+	want := "create\n--dry-run\n--list\n--\n" + cfg.Repositories["local"].Location + "::service-{now:%Y-%m-%dT%H:%M:%S}\n./service/data\n./service/config"
+	if got := read(t, dir, "args"); got != want {
+		t.Fatalf("args:\n%s\nwant:\n%s", got, want)
+	}
+	if got := read(t, dir, "passphrase"); got != "fixture-passphrase" {
+		t.Fatalf("passphrase was not passed through the environment: %q", got)
+	}
+}
+
+func TestPreviewPruneArguments(t *testing.T) {
+	dir := fakeBorg(t, fakeMaintenance+recordCreate)
+	cfg, _ := fixtureWithJob(t, "./repository", "    lock_wait: 5m\n", "    maintenance:\n      retention:\n        keep_within: 7d\n        keep_daily: 7\n        keep_yearly: 2\n")
+	if status, err := Preview(context.Background(), cfg, "service", io.Discard, io.Discard); status != Succeeded || err != nil {
+		t.Fatalf("status = %v, err = %v", status, err)
+	}
+	want := "prune\n--dry-run\n--list\n--lock-wait\n300\n--glob-archives\nservice-????-??-??T??:??:??\n--keep-within\n7d\n--keep-daily\n7\n--keep-yearly\n2\n--\n" + cfg.Repositories["local"].Location
+	if got := read(t, dir, "prune-args"); got != want {
+		t.Fatalf("prune args = %q, want %q", got, want)
+	}
+}
+
+func TestPreviewNeverRunsCompact(t *testing.T) {
+	const compact = "    maintenance:\n      retention:\n        keep_daily: 7\n      compact: true\n"
+	const compactRun = compact + "      after_backup_warning: run\n"
+	for _, test := range []struct {
+		name       string
+		jobExtra   string
+		createExit string
+		pruneExit  string
+	}{
+		{"clean backup", compact, "0", "0"},
+		{"prune warning", compact, "0", "1"},
+		{"prune failure", compact, "0", "2"},
+		{"backup warning runs maintenance", compactRun, "1", "0"},
+		{"backup failure", compact, "2", "0"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := fakeBorg(t, fakeMaintenance+recordCreate)
+			t.Setenv("FAKE_BORG_EXIT", test.createExit)
+			t.Setenv("FAKE_PRUNE_EXIT", test.pruneExit)
+			cfg, _ := fixtureWithJob(t, "./repository", "", test.jobExtra)
+			_, err := Preview(context.Background(), cfg, "service", io.Discard, io.Discard)
+			if failed := test.createExit == "2" || test.pruneExit == "2"; failed != (err != nil) {
+				t.Fatalf("error = %v, want failure %v", err, failed)
+			}
+			if _, err := os.Stat(filepath.Join(dir, "compact-args")); err == nil {
+				t.Fatal("preview invoked borg compact")
+			}
+		})
+	}
+}
+
+func TestPreviewMaintenanceOutcomes(t *testing.T) {
+	const retention = "    maintenance:\n      retention:\n        keep_daily: 7\n"
+	const retentionRun = retention + "      after_backup_warning: run\n"
+	for _, test := range []struct {
+		name        string
+		jobExtra    string
+		createExit  string
+		pruneExit   string
+		wantStatus  Status
+		wantFailure bool
+		wantPrune   bool
+	}{
+		{"no maintenance", "", "0", "0", Succeeded, false, false},
+		{"clean backup and prune", retention, "0", "0", Succeeded, false, true},
+		{"prune warning", retention, "0", "1", Warned, false, true},
+		{"prune failure", retention, "0", "2", Failed, true, true},
+		{"backup warning skips prune by default", retention, "1", "0", Warned, false, false},
+		{"backup warning runs prune when configured", retentionRun, "1", "0", Warned, false, true},
+		{"backup warning and prune warning", retentionRun, "1", "1", Warned, false, true},
+		{"backup failure never previews prune", retentionRun, "2", "0", Failed, true, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := fakeBorg(t, fakeMaintenance+recordCreate)
+			t.Setenv("FAKE_BORG_EXIT", test.createExit)
+			t.Setenv("FAKE_PRUNE_EXIT", test.pruneExit)
+			cfg, _ := fixtureWithJob(t, "./repository", "", test.jobExtra)
+			status, err := Preview(context.Background(), cfg, "service", io.Discard, io.Discard)
+			if status != test.wantStatus {
+				t.Fatalf("status = %v, want %v", status, test.wantStatus)
+			}
+			if test.wantFailure != (err != nil) {
+				t.Fatalf("error = %v, want failure %v", err, test.wantFailure)
+			}
+			_, pruneErr := os.Stat(filepath.Join(dir, "prune-args"))
+			if ran := pruneErr == nil; ran != test.wantPrune {
+				t.Fatalf("prune previewed = %v, want %v", ran, test.wantPrune)
+			}
+		})
+	}
+}
+
+func TestPreviewSkipMessages(t *testing.T) {
+	const compact = "    maintenance:\n      retention:\n        keep_daily: 7\n      compact: true\n"
+	const compactRun = compact + "      after_backup_warning: run\n"
+	const compactNote = "Compaction is not previewed and was not run."
+	const gateNote = "Maintenance was not previewed: the backup reported warnings and after_backup_warning is skip."
+	for _, test := range []struct {
+		name       string
+		jobExtra   string
+		createExit string
+		pruneExit  string
+		wantOutput []string
+		wantAbsent []string
+	}{
+		{"clean backup", compact, "0", "0", []string{"Would create archive \"service-", compactNote}, []string{gateNote}},
+		{"prune warning does not reach compaction", compact, "0", "1", nil, []string{compactNote}},
+		{"backup warning gated", compact, "1", "0", []string{gateNote}, []string{compactNote}},
+		{"backup warning runs maintenance", compactRun, "1", "0", []string{compactNote}, []string{gateNote}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fakeBorg(t, fakeMaintenance+recordCreate)
+			t.Setenv("FAKE_BORG_EXIT", test.createExit)
+			t.Setenv("FAKE_PRUNE_EXIT", test.pruneExit)
+			cfg, _ := fixtureWithJob(t, "./repository", "", test.jobExtra)
+			var stdout bytes.Buffer
+			if _, err := Preview(context.Background(), cfg, "service", &stdout, io.Discard); err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range test.wantOutput {
+				if !strings.Contains(stdout.String(), want) {
+					t.Errorf("output %q does not contain %q", stdout.String(), want)
+				}
+			}
+			for _, absent := range test.wantAbsent {
+				if strings.Contains(stdout.String(), absent) {
+					t.Errorf("output %q contains %q", stdout.String(), absent)
+				}
+			}
+		})
 	}
 }
 
