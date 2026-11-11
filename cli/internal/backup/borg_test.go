@@ -167,36 +167,45 @@ func TestRealBorgArchiveGlobIsolation(t *testing.T) {
 	}
 }
 
-// TestRealBorgPruneKeepsOnlyJobArchives runs a real backup with retention and
-// checks that prune keeps one of this job's archives in the hour and leaves
-// another job's archive, whose prefix extends this one, untouched.
+// TestRealBorgPruneKeepsOnlyJobArchives seeds archives for this job and for
+// service-b before a real backup with retention runs. With keep_hourly: 1, prune
+// removes every seeded service archive, since only the newest hour is kept. The
+// two service-b archives would be removed the same way if the glob matched them,
+// so they must survive.
 func TestRealBorgPruneKeepsOnlyJobArchives(t *testing.T) {
 	files := map[string]string{"service/data/alpha.txt": "alpha"}
 	fixture := newRealFixtureWithJob(t, []string{"service/data"}, files,
 		"    maintenance:\n      retention:\n        keep_hourly: 1\n")
-
-	for i := 0; i < 2; i++ {
-		if status, err := Run(context.Background(), fixture.cfg, "service", io.Discard, io.Discard); err != nil || status != Succeeded {
-			t.Fatalf("backup %d status = %v, err = %v", i, status, err)
+	inputs := filepath.Join(fixture.root, "inputs")
+	for _, name := range []string{
+		"service-2020-01-01T10:00:00",
+		"service-2020-01-01T10:30:00",
+		"service-b-2020-01-01T10:00:00",
+		"service-b-2020-01-01T10:30:00",
+	} {
+		if out, err := fixture.borg(inputs, "create", fixture.repository+"::"+name, "./service/data"); err != nil {
+			t.Fatalf("seed %s: %v\n%s", name, err, out)
 		}
 	}
-	other := fixture.repository + "::service-b-2026-11-11T10:00:00"
-	if out, err := fixture.borg(filepath.Join(fixture.root, "inputs"), "create", other, "./service/data"); err != nil {
-		t.Fatalf("create other job archive: %v\n%s", err, out)
+
+	if status, err := Run(context.Background(), fixture.cfg, "service", io.Discard, io.Discard); err != nil || status != Succeeded {
+		t.Fatalf("backup status = %v, err = %v", status, err)
 	}
 
-	archives := fixture.archives()
-	var mine, theirs int
-	for _, name := range archives {
+	var mine, theirs []string
+	for _, name := range fixture.archives() {
 		switch {
 		case strings.HasPrefix(name, "service-b-"):
-			theirs++
+			theirs = append(theirs, name)
 		case strings.HasPrefix(name, "service-"):
-			mine++
+			mine = append(mine, name)
 		}
 	}
-	if mine != 1 || theirs != 1 || len(archives) != 2 {
-		t.Fatalf("archives after prune = %q, want one service and one service-b", archives)
+	if len(theirs) != 2 {
+		t.Fatalf("service-b archives = %q, want both kept", theirs)
+	}
+	if len(mine) != 1 || strings.HasPrefix(mine[0], "service-2020-") {
+		t.Fatalf("service archives = %q, want only the new backup", mine)
 	}
 }
 
