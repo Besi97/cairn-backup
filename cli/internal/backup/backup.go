@@ -83,21 +83,37 @@ func Run(ctx context.Context, cfg *config.Config, name string, stdout, stderr io
 	if err != nil || status == Interrupted {
 		return status, err
 	}
-	if job.Maintenance == nil || job.Maintenance.Retention == nil {
+	maintenance := job.Maintenance
+	if maintenance == nil || (maintenance.Retention == nil && !maintenance.Compact) {
 		return status, nil
 	}
-	if status == Warned && job.Maintenance.AfterBackupWarning != "run" {
+	if status == Warned && maintenance.AfterBackupWarning != "run" {
 		return Warned, nil
 	}
 	if ctx.Err() != nil {
 		return Interrupted, nil
 	}
 
-	pruneStatus, err := runBorg(ctx, installation.Path, env, job.SourceRoot, pruneArgs(repository.Location, lockWait, job), stdout, stderr)
-	if err != nil || pruneStatus == Interrupted {
-		return pruneStatus, err
+	// Compaction waits for a clean prune. Without retention, it follows the
+	// backup directly.
+	if maintenance.Retention != nil {
+		pruneStatus, err := runBorg(ctx, installation.Path, env, job.SourceRoot, pruneArgs(repository.Location, lockWait, job), stdout, stderr)
+		if err != nil || pruneStatus != Succeeded {
+			return pruneStatus, err
+		}
 	}
-	if status == Warned || pruneStatus == Warned {
+	if !maintenance.Compact {
+		return status, nil
+	}
+	if ctx.Err() != nil {
+		return Interrupted, nil
+	}
+
+	compactStatus, err := runBorg(ctx, installation.Path, env, job.SourceRoot, compactArgs(repository.Location, lockWait), stdout, stderr)
+	if err != nil || compactStatus == Interrupted {
+		return compactStatus, err
+	}
+	if status == Warned || compactStatus == Warned {
 		return Warned, nil
 	}
 	return Succeeded, nil
@@ -137,6 +153,12 @@ func runBorg(ctx context.Context, path string, env []string, dir string, args []
 		return classifyExit(args[0], exit.ExitCode())
 	}
 	return Failed, fmt.Errorf("run borg %s: %w", args[0], waitErr)
+}
+
+// compactArgs builds a compact command. Borg compacts the whole repository, so
+// space from other jobs' deleted archives is reclaimed as well.
+func compactArgs(location string, lockWait int) []string {
+	return []string{"compact", "--lock-wait", strconv.Itoa(lockWait), "--", location}
 }
 
 // pruneArgs builds a prune command limited to this job's archives. Only the

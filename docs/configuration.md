@@ -142,8 +142,15 @@ example, `7d` or `4w`) and positive `keep_hourly`, `keep_daily`, `keep_weekly`,
 `keep_monthly`, or `keep_yearly` counts. At least one retention rule is required
 when using `retention`. Compaction is disabled unless `compact` is `true`.
 
+Prune runs only when `retention` is configured, and it considers only this job's
+archives. Compaction runs after a clean backup and, when `retention` is
+configured, after a clean prune. A prune warning or failure skips compaction.
+Compaction works on the whole repository, so it also reclaims space from other
+jobs' deleted archives.
+
 `after_backup_warning` controls maintenance when archive creation reports a
-warning. It accepts `skip` (the default) or `run`.
+warning. It accepts `skip` (the default) or `run`. A backup failure never runs
+maintenance.
 
 Compression is not configurable; Cairn uses Borg's default, `lz4`. Arbitrary
 Borg arguments are not supported.

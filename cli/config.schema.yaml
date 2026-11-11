@@ -121,7 +121,7 @@ $defs:
       compact:
         type: boolean
         default: false
-        description: Run Borg compact after this job's successful backup and, when configured, prune stages.
+        description: Run Borg compact after a clean backup, and after a clean prune when retention is configured. Compaction covers the whole repository.
       after_backup_warning:
         type: string
         enum:
