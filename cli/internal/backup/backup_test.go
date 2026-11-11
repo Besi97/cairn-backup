@@ -165,38 +165,60 @@ func TestRunExitStatusMapping(t *testing.T) {
 	}
 }
 
-// fakePrune records prune arguments and exits with FAKE_PRUNE_EXIT. Create
-// behavior comes from recordCreate.
-const fakePrune = `case "$1" in
+// fakeMaintenance records prune and compact arguments and exits with
+// FAKE_PRUNE_EXIT or FAKE_COMPACT_EXIT. Create behavior comes from recordCreate.
+const fakeMaintenance = `case "$1" in
 prune) printf '%s\n' "$@" > "$FAKE_BORG_DIR/prune-args"; exit "${FAKE_PRUNE_EXIT:-0}" ;;
+compact) printf '%s\n' "$@" > "$FAKE_BORG_DIR/compact-args"; exit "${FAKE_COMPACT_EXIT:-0}" ;;
 esac
 `
 
-func TestRunPruneOutcomes(t *testing.T) {
+func TestRunMaintenanceOutcomes(t *testing.T) {
 	const retention = "    maintenance:\n      retention:\n        keep_daily: 7\n"
 	const retentionRun = retention + "      after_backup_warning: run\n"
+	const compact = "    maintenance:\n      compact: true\n"
+	const compactRun = compact + "      after_backup_warning: run\n"
+	const both = retention + "      compact: true\n"
+	const bothRun = both + "      after_backup_warning: run\n"
 	for _, test := range []struct {
 		name        string
 		jobExtra    string
 		createExit  string
 		pruneExit   string
+		compactExit string
 		wantStatus  Status
 		wantFailure bool
 		wantPrune   bool
+		wantCompact bool
 	}{
-		{"no maintenance", "", "0", "0", Succeeded, false, false},
-		{"clean backup and prune", retention, "0", "0", Succeeded, false, true},
-		{"prune warning", retention, "0", "1", Warned, false, true},
-		{"prune failure", retention, "0", "2", Failed, true, true},
-		{"backup warning skips by default", retention, "1", "0", Warned, false, false},
-		{"backup warning runs prune when configured", retentionRun, "1", "0", Warned, false, true},
-		{"backup warning and prune warning", retentionRun, "1", "1", Warned, false, true},
-		{"backup failure never prunes", retentionRun, "2", "0", Failed, true, false},
+		{"no maintenance", "", "0", "0", "0", Succeeded, false, false, false},
+		{"clean backup and prune", retention, "0", "0", "0", Succeeded, false, true, false},
+		{"prune warning", retention, "0", "1", "0", Warned, false, true, false},
+		{"prune failure", retention, "0", "2", "0", Failed, true, true, false},
+		{"backup warning skips by default", retention, "1", "0", "0", Warned, false, false, false},
+		{"backup warning runs prune when configured", retentionRun, "1", "0", "0", Warned, false, true, false},
+		{"backup warning and prune warning", retentionRun, "1", "1", "0", Warned, false, true, false},
+		{"backup failure never prunes", retentionRun, "2", "0", "0", Failed, true, false, false},
+		{"compact only after clean backup", compact, "0", "0", "0", Succeeded, false, false, true},
+		{"compact only skipped after backup warning", compact, "1", "0", "0", Warned, false, false, false},
+		{"compact only after backup warning when configured", compactRun, "1", "0", "0", Warned, false, false, true},
+		{"compact only compact warning", compact, "0", "0", "1", Warned, false, false, true},
+		{"compact only compact failure", compact, "0", "0", "2", Failed, true, false, true},
+		{"clean backup prune and compact", both, "0", "0", "0", Succeeded, false, true, true},
+		{"prune warning skips compact", both, "0", "1", "0", Warned, false, true, false},
+		{"prune failure skips compact", both, "0", "2", "0", Failed, true, true, false},
+		{"compact warning", both, "0", "0", "1", Warned, false, true, true},
+		{"compact failure", both, "0", "0", "2", Failed, true, true, true},
+		{"backup warning skips maintenance by default", both, "1", "0", "0", Warned, false, false, false},
+		{"backup warning runs prune and compact", bothRun, "1", "0", "0", Warned, false, true, true},
+		{"backup warning and prune warning skip compact", bothRun, "1", "1", "0", Warned, false, true, false},
+		{"backup failure never compacts", bothRun, "2", "0", "0", Failed, true, false, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			fakeBorg(t, fakePrune+recordCreate)
+			fakeBorg(t, fakeMaintenance+recordCreate)
 			t.Setenv("FAKE_BORG_EXIT", test.createExit)
 			t.Setenv("FAKE_PRUNE_EXIT", test.pruneExit)
+			t.Setenv("FAKE_COMPACT_EXIT", test.compactExit)
 			cfg, _ := fixtureWithJob(t, "./repository", "", test.jobExtra)
 			status, err := Run(context.Background(), cfg, "service", io.Discard, io.Discard)
 			if status != test.wantStatus {
@@ -205,16 +227,33 @@ func TestRunPruneOutcomes(t *testing.T) {
 			if test.wantFailure != (err != nil) {
 				t.Fatalf("error = %v, want failure %v", err, test.wantFailure)
 			}
-			_, statErr := os.Stat(filepath.Join(os.Getenv("FAKE_BORG_DIR"), "prune-args"))
-			if ran := statErr == nil; ran != test.wantPrune {
+			dir := os.Getenv("FAKE_BORG_DIR")
+			_, pruneErr := os.Stat(filepath.Join(dir, "prune-args"))
+			if ran := pruneErr == nil; ran != test.wantPrune {
 				t.Fatalf("prune ran = %v, want %v", ran, test.wantPrune)
+			}
+			_, compactErr := os.Stat(filepath.Join(dir, "compact-args"))
+			if ran := compactErr == nil; ran != test.wantCompact {
+				t.Fatalf("compact ran = %v, want %v", ran, test.wantCompact)
 			}
 		})
 	}
 }
 
+func TestRunCompactArguments(t *testing.T) {
+	dir := fakeBorg(t, fakeMaintenance+recordCreate)
+	cfg, _ := fixtureWithJob(t, "./repository", "", "    maintenance:\n      compact: true\n")
+	if status, err := Run(context.Background(), cfg, "service", io.Discard, io.Discard); status != Succeeded || err != nil {
+		t.Fatalf("status = %v, err = %v", status, err)
+	}
+	want := "compact\n--lock-wait\n60\n--\n" + cfg.Repositories["local"].Location
+	if got := read(t, dir, "compact-args"); got != want {
+		t.Fatalf("compact args = %q, want %q", got, want)
+	}
+}
+
 func TestRunPruneArguments(t *testing.T) {
-	dir := fakeBorg(t, fakePrune+recordCreate)
+	dir := fakeBorg(t, fakeMaintenance+recordCreate)
 	cfg, _ := fixtureWithJob(t, "./repository", "", "    maintenance:\n      retention:\n        keep_within: 7d\n        keep_daily: 7\n        keep_yearly: 2\n")
 	if status, err := Run(context.Background(), cfg, "service", io.Discard, io.Discard); status != Succeeded || err != nil {
 		t.Fatalf("status = %v, err = %v", status, err)

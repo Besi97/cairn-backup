@@ -209,6 +209,44 @@ func TestRealBorgPruneKeepsOnlyJobArchives(t *testing.T) {
 	}
 }
 
+// TestRealBorgCompactAfterPrune runs backup, prune, and compact with real Borg.
+// The repository must pass a repository check afterwards, the new archive must
+// restore, and another job's archives must survive.
+func TestRealBorgCompactAfterPrune(t *testing.T) {
+	files := map[string]string{"service/data/alpha.txt": "alpha contents"}
+	fixture := newRealFixtureWithJob(t, []string{"service/data"}, files,
+		"    maintenance:\n      retention:\n        keep_hourly: 1\n      compact: true\n")
+	inputs := filepath.Join(fixture.root, "inputs")
+	for _, name := range []string{"service-b-2020-01-01T10:00:00", "service-b-2020-01-01T10:30:00"} {
+		if out, err := fixture.borg(inputs, "create", fixture.repository+"::"+name, "./service/data"); err != nil {
+			t.Fatalf("seed %s: %v\n%s", name, err, out)
+		}
+	}
+
+	status, err := Run(context.Background(), fixture.cfg, "service", io.Discard, io.Discard)
+	if err != nil || status != Succeeded {
+		t.Fatalf("backup status = %v, err = %v", status, err)
+	}
+	if out, err := fixture.borg(fixture.root, "check", "--repository-only", fixture.repository); err != nil {
+		t.Fatalf("check after compact: %v\n%s", err, out)
+	}
+
+	var mine string
+	var theirs int
+	for _, name := range fixture.archives() {
+		switch {
+		case strings.HasPrefix(name, "service-b-"):
+			theirs++
+		case strings.HasPrefix(name, "service-"):
+			mine = name
+		}
+	}
+	if theirs != 2 || mine == "" {
+		t.Fatalf("archives = %q, want two service-b and the new service archive", fixture.archives())
+	}
+	assertRestored(t, fixture.restore(mine), files)
+}
+
 // TestRealBorgDashSource guards against Borg reading a bare "-" source as stdin.
 func TestRealBorgDashSource(t *testing.T) {
 	files := map[string]string{"-": "dash source contents"}
