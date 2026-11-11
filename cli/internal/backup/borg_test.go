@@ -134,6 +134,33 @@ func TestRealBorgRoundTrip(t *testing.T) {
 	assertRestored(t, fixture.restore(archives[0]), files)
 }
 
+// TestRealBorgArchiveGlobIsolation checks that a job's archive glob does not
+// select an archive from another job whose prefix extends it.
+func TestRealBorgArchiveGlobIsolation(t *testing.T) {
+	files := map[string]string{"service/data/alpha.txt": "alpha"}
+	fixture := newRealFixture(t, []string{"service/data"}, files)
+
+	if status, err := Run(context.Background(), fixture.cfg, "service", io.Discard, io.Discard); err != nil || status != Succeeded {
+		t.Fatalf("backup status = %v, err = %v", status, err)
+	}
+	other := fixture.repository + "::service-b-2026-11-11T10:00:00"
+	if out, err := fixture.borg(filepath.Join(fixture.root, "inputs"), "create", other, "./service/data"); err != nil {
+		t.Fatalf("create other job archive: %v\n%s", err, out)
+	}
+	if len(fixture.archives()) != 2 {
+		t.Fatalf("archives = %q, want two", fixture.archives())
+	}
+
+	list, err := fixture.borg(fixture.root, "list", "--short", "--glob-archives", archiveGlob("service"), fixture.repository)
+	if err != nil {
+		t.Fatalf("list: %v\n%s", err, list)
+	}
+	selected := strings.Fields(string(list))
+	if len(selected) != 1 || !strings.HasPrefix(selected[0], "service-") || strings.HasPrefix(selected[0], "service-b-") {
+		t.Fatalf("glob selected %q, want only the service archive", selected)
+	}
+}
+
 // TestRealBorgDashSource guards against Borg reading a bare "-" source as stdin.
 func TestRealBorgDashSource(t *testing.T) {
 	files := map[string]string{"-": "dash source contents"}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,6 +12,25 @@ import (
 
 	"github.com/Besi97/cairn-backup/cli/internal/config"
 )
+
+func TestArchiveGlobSelectsOnlyPrefixArchives(t *testing.T) {
+	pattern := archiveGlob("service")
+	matches := map[string]bool{
+		"service-2026-11-11T10:00:00":   true,
+		"service-b-2026-11-11T10:00:00": false,
+		"service-2026-11-11T10:00:00-x": false,
+		"service":                       false,
+	}
+	for name, want := range matches {
+		got, err := path.Match(pattern, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Errorf("match(%q, %q) = %v, want %v", pattern, name, got, want)
+		}
+	}
+}
 
 // fakeBorg installs a borg script that answers --version and runs body for
 // other invocations. Recorded values are written to FAKE_BORG_DIR.
