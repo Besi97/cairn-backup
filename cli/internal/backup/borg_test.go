@@ -24,6 +24,12 @@ type realFixture struct {
 
 func newRealFixture(t *testing.T, sources []string, files map[string]string) *realFixture {
 	t.Helper()
+	return newRealFixtureWithJob(t, sources, files, "")
+}
+
+// newRealFixtureWithJob is newRealFixture with extra lines appended to the job.
+func newRealFixtureWithJob(t *testing.T, sources []string, files map[string]string, jobExtra string) *realFixture {
+	t.Helper()
 	if _, err := exec.LookPath("borg"); err != nil {
 		t.Skip("borg is not installed")
 	}
@@ -48,7 +54,7 @@ func newRealFixture(t *testing.T, sources []string, files map[string]string) *re
 	}
 	document := "version: 1\nrepositories:\n  local:\n    location: ./repository\n    passphrase_file: ./passphrase\n" +
 		"jobs:\n  service:\n    repository: local\n    source_root: ./inputs\n    sources: [" + strings.Join(quoted, ", ") +
-		"]\n    archive_prefix: service\n"
+		"]\n    archive_prefix: service\n" + jobExtra
 	configPath := filepath.Join(root, "config.yaml")
 	if err := os.WriteFile(configPath, []byte(document), 0o600); err != nil {
 		t.Fatal(err)
@@ -158,6 +164,48 @@ func TestRealBorgArchiveGlobIsolation(t *testing.T) {
 	selected := strings.Fields(string(list))
 	if len(selected) != 1 || !strings.HasPrefix(selected[0], "service-") || strings.HasPrefix(selected[0], "service-b-") {
 		t.Fatalf("glob selected %q, want only the service archive", selected)
+	}
+}
+
+// TestRealBorgPruneKeepsOnlyJobArchives seeds archives for this job and for
+// service-b before a real backup with retention runs. With keep_hourly: 1, prune
+// removes every seeded service archive, since only the newest hour is kept. The
+// two service-b archives would be removed the same way if the glob matched them,
+// so they must survive.
+func TestRealBorgPruneKeepsOnlyJobArchives(t *testing.T) {
+	files := map[string]string{"service/data/alpha.txt": "alpha"}
+	fixture := newRealFixtureWithJob(t, []string{"service/data"}, files,
+		"    maintenance:\n      retention:\n        keep_hourly: 1\n")
+	inputs := filepath.Join(fixture.root, "inputs")
+	for _, name := range []string{
+		"service-2020-01-01T10:00:00",
+		"service-2020-01-01T10:30:00",
+		"service-b-2020-01-01T10:00:00",
+		"service-b-2020-01-01T10:30:00",
+	} {
+		if out, err := fixture.borg(inputs, "create", fixture.repository+"::"+name, "./service/data"); err != nil {
+			t.Fatalf("seed %s: %v\n%s", name, err, out)
+		}
+	}
+
+	if status, err := Run(context.Background(), fixture.cfg, "service", io.Discard, io.Discard); err != nil || status != Succeeded {
+		t.Fatalf("backup status = %v, err = %v", status, err)
+	}
+
+	var mine, theirs []string
+	for _, name := range fixture.archives() {
+		switch {
+		case strings.HasPrefix(name, "service-b-"):
+			theirs = append(theirs, name)
+		case strings.HasPrefix(name, "service-"):
+			mine = append(mine, name)
+		}
+	}
+	if len(theirs) != 2 {
+		t.Fatalf("service-b archives = %q, want both kept", theirs)
+	}
+	if len(mine) != 1 || strings.HasPrefix(mine[0], "service-2020-") {
+		t.Fatalf("service archives = %q, want only the new backup", mine)
 	}
 }
 

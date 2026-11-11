@@ -56,6 +56,13 @@ exit "${FAKE_BORG_EXIT:-0}"`
 // and returns the loaded configuration and the source root.
 func fixture(t *testing.T, location, repositoryExtra string) (*config.Config, string) {
 	t.Helper()
+	return fixtureWithJob(t, location, repositoryExtra, "")
+}
+
+// fixtureWithJob is fixture with extra lines appended to the job, such as
+// maintenance settings.
+func fixtureWithJob(t *testing.T, location, repositoryExtra, jobExtra string) (*config.Config, string) {
+	t.Helper()
 	root := t.TempDir()
 	source := filepath.Join(root, "data")
 	if err := os.MkdirAll(source, 0o700); err != nil {
@@ -65,7 +72,7 @@ func fixture(t *testing.T, location, repositoryExtra string) (*config.Config, st
 		t.Fatal(err)
 	}
 	document := "version: 1\nrepositories:\n  local:\n    location: " + location + "\n    passphrase_file: ./passphrase\n" + repositoryExtra +
-		"jobs:\n  service:\n    repository: local\n    source_root: ./data\n    sources: [service/data, service/config]\n    archive_prefix: service\n"
+		"jobs:\n  service:\n    repository: local\n    source_root: ./data\n    sources: [service/data, service/config]\n    archive_prefix: service\n" + jobExtra
 	path := filepath.Join(root, "config.yaml")
 	if err := os.WriteFile(path, []byte(document), 0o600); err != nil {
 		t.Fatal(err)
@@ -155,6 +162,66 @@ func TestRunExitStatusMapping(t *testing.T) {
 				t.Fatalf("error = %v for status %v", err, status)
 			}
 		})
+	}
+}
+
+// fakePrune records prune arguments and exits with FAKE_PRUNE_EXIT. Create
+// behavior comes from recordCreate.
+const fakePrune = `case "$1" in
+prune) printf '%s\n' "$@" > "$FAKE_BORG_DIR/prune-args"; exit "${FAKE_PRUNE_EXIT:-0}" ;;
+esac
+`
+
+func TestRunPruneOutcomes(t *testing.T) {
+	const retention = "    maintenance:\n      retention:\n        keep_daily: 7\n"
+	const retentionRun = retention + "      after_backup_warning: run\n"
+	for _, test := range []struct {
+		name        string
+		jobExtra    string
+		createExit  string
+		pruneExit   string
+		wantStatus  Status
+		wantFailure bool
+		wantPrune   bool
+	}{
+		{"no maintenance", "", "0", "0", Succeeded, false, false},
+		{"clean backup and prune", retention, "0", "0", Succeeded, false, true},
+		{"prune warning", retention, "0", "1", Warned, false, true},
+		{"prune failure", retention, "0", "2", Failed, true, true},
+		{"backup warning skips by default", retention, "1", "0", Warned, false, false},
+		{"backup warning runs prune when configured", retentionRun, "1", "0", Warned, false, true},
+		{"backup warning and prune warning", retentionRun, "1", "1", Warned, false, true},
+		{"backup failure never prunes", retentionRun, "2", "0", Failed, true, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fakeBorg(t, fakePrune+recordCreate)
+			t.Setenv("FAKE_BORG_EXIT", test.createExit)
+			t.Setenv("FAKE_PRUNE_EXIT", test.pruneExit)
+			cfg, _ := fixtureWithJob(t, "./repository", "", test.jobExtra)
+			status, err := Run(context.Background(), cfg, "service", io.Discard, io.Discard)
+			if status != test.wantStatus {
+				t.Fatalf("status = %v, want %v", status, test.wantStatus)
+			}
+			if test.wantFailure != (err != nil) {
+				t.Fatalf("error = %v, want failure %v", err, test.wantFailure)
+			}
+			_, statErr := os.Stat(filepath.Join(os.Getenv("FAKE_BORG_DIR"), "prune-args"))
+			if ran := statErr == nil; ran != test.wantPrune {
+				t.Fatalf("prune ran = %v, want %v", ran, test.wantPrune)
+			}
+		})
+	}
+}
+
+func TestRunPruneArguments(t *testing.T) {
+	dir := fakeBorg(t, fakePrune+recordCreate)
+	cfg, _ := fixtureWithJob(t, "./repository", "", "    maintenance:\n      retention:\n        keep_within: 7d\n        keep_daily: 7\n        keep_yearly: 2\n")
+	if status, err := Run(context.Background(), cfg, "service", io.Discard, io.Discard); status != Succeeded || err != nil {
+		t.Fatalf("status = %v, err = %v", status, err)
+	}
+	want := "prune\n--lock-wait\n60\n--glob-archives\nservice-????-??-??T??:??:??\n--keep-within\n7d\n--keep-daily\n7\n--keep-yearly\n2\n--\n" + cfg.Repositories["local"].Location
+	if got := read(t, dir, "prune-args"); got != want {
+		t.Fatalf("prune args = %q, want %q", got, want)
 	}
 }
 
