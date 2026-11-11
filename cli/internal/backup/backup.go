@@ -112,6 +112,13 @@ func Run(ctx context.Context, cfg *config.Config, name string, stdout, stderr io
 	return Failed, fmt.Errorf("run borg create: %w", waitErr)
 }
 
+// archiveGlob selects the archives created for one archive prefix. The
+// timestamp suffix has a fixed width, so the prefix "service" does not match
+// archives named for "service-b".
+func archiveGlob(prefix string) string {
+	return prefix + "-????-??-??T??:??:??"
+}
+
 // classifyExit follows Borg's own classification, which holds in both legacy
 // and BORG_EXIT_CODES=modern modes. Status 1 and the modern warning range
 // 100 through 127 mean the operation completed with warnings. Everything else
