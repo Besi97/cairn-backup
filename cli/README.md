@@ -27,3 +27,14 @@ make build VERSION=0.1.0
 `cmd/cairn` contains the process entry point. `internal/cli` handles arguments
 and output; future Borg execution code should remain separate from command
 parsing. Help and version output do not require Borg or configuration.
+
+`internal/borg` provides the shared process runner. It checks the selected
+executable's version before each operation, accepts stable Borg 1.x from 1.2.8,
+and streams operation diagnostics to a supplied writer. Callers prepare argument
+arrays, environment overrides, and the working directory; the runner neither
+loads configuration nor invokes a shell. Results distinguish success, warnings,
+failures, and interruption while retaining the process exit code.
+
+The runner is not wired to CLI commands yet. Credential and SSH policy, lock
+policy, and complete subprocess-tree cancellation are separate work. Its current
+context cancellation stops only the direct Borg process.
