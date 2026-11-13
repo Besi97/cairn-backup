@@ -37,7 +37,7 @@ failures, and interruption while retaining the process exit code.
 
 The runner is not wired to CLI operation commands yet.
 
-## Locking and cancellation
+## Locking
 
 Borg's repository and cache locks remain authoritative across Cairn invocations,
 future scheduler operations, and external Borg processes. `LockWaitArgs` prepares
@@ -46,6 +46,14 @@ Upcoming operation commands will expose `--lock-wait SECONDS`. This is not an
 overall operation or SSH connection timeout. Cairn does not queue operations,
 retry failures, bypass locks, or delete lock files. A lock timeout is an execution
 failure; native Borg diagnostics are streamed to the caller.
+
+Borg handles stale local locks on subsequent acquisition; zero wait may fail even
+after Borg removes a stale lock. Borg also needs a stable host identity to recognize
+stale local locks. In containers without a stable MAC, configure Borg's
+`BORG_HOST_ID` consistently; Cairn preserves it rather than inventing a host
+identity or removing foreign locks.
+
+## Cancellation
 
 Both the version probe and operation run in separate local Linux process groups.
 Cancellation forwards the initiating SIGINT or SIGTERM to the group; ordinary
@@ -65,12 +73,8 @@ mistaking a cleanup signal for the user's request.
 
 This covers ordinary Borg, SSH, and passcommand descendants in the owned local
 group, not programs that deliberately detach or remote server processes. Cairn
-cannot guarantee graceful cleanup after its own SIGKILL or a host crash. Borg
-handles stale local locks on subsequent acquisition; zero wait may fail even
-after Borg removes a stale lock. Interrupted backups may leave checkpoint archives.
-Borg also needs a stable host identity to recognize stale local locks. In
-containers without a stable MAC, configure Borg's `BORG_HOST_ID` consistently;
-Cairn preserves it rather than inventing a host identity or removing foreign locks.
+cannot guarantee graceful cleanup after its own SIGKILL or a host crash.
+Interrupted backups may leave checkpoint archives.
 
 ## Repository access
 
