@@ -3,7 +3,6 @@
 - Status: Accepted
 - Date: 2026-11-13
 - Issue: [#44](https://github.com/Besi97/cairn-backup/issues/44)
-- Follows: [ADR 0001](0001-supported-environment.md)
 
 ## Context
 
