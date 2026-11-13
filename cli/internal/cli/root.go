@@ -2,8 +2,11 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
+
+	"github.com/Besi97/cairn-backup/cli/internal/cancellation"
 
 	"github.com/spf13/cobra"
 )
@@ -14,12 +17,21 @@ const (
 )
 
 // Run executes one invocation with isolated arguments and output streams.
-func Run(args []string, stdout, stderr io.Writer, version string) int {
+func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version string) int {
 	cmd := newRootCommand(version)
 	cmd.SetArgs(args)
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	if err := cmd.Execute(); err != nil {
+	if ctx.Err() != nil {
+		fmt.Fprintf(stderr, "Interrupted: %v\n", context.Cause(ctx))
+		return 128 + int(cancellation.From(ctx))
+	}
+	err := cmd.ExecuteContext(ctx)
+	if ctx.Err() != nil {
+		fmt.Fprintf(stderr, "Interrupted: %v\n", context.Cause(ctx))
+		return 128 + int(cancellation.From(ctx))
+	}
+	if err != nil {
 		fmt.Fprintf(stderr, "Error: %v\nRun 'cairn --help' for usage.\n", err)
 		return exitInvalidInput
 	}

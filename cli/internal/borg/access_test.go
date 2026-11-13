@@ -2,6 +2,7 @@ package borg
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"os"
@@ -194,6 +195,31 @@ func TestAccessCleanup(t *testing.T) {
 	}
 	if _, err := failed.files[0].Stat(); err == nil {
 		t.Error("descriptor remains open after preparation failure")
+	}
+}
+
+func TestCanceledAccessCleanup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "passphrase")
+	if err := os.WriteFile(path, []byte("secret"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	req := request()
+	req.Access.PassphraseFile = path
+	req.Diagnostics = cancelWriter{cancel}
+	result, err := (Runner{Executable: fakeBorg}).Run(ctx, req)
+	if err == nil || result.Outcome != Interrupted {
+		t.Fatalf("result = %+v, error = %v", result, err)
+	}
+	fds, err := os.ReadDir("/proc/self/fd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fd := range fds {
+		if target, _ := os.Readlink(filepath.Join("/proc/self/fd", fd.Name())); target == path {
+			t.Fatal("owned passphrase file remains open after cancellation")
+		}
 	}
 }
 

@@ -44,14 +44,13 @@ type Request struct {
 }
 
 // Runner uses Borg from PATH unless Executable selects an explicit binary.
-// It does not implement lock policy or process-tree cleanup.
+// Lock waiting is delegated to Borg through prepared operation arguments.
 type Runner struct {
 	Executable string
 }
 
 // Run checks compatibility before executing an operation. Warnings are completed
 // operations and return a nil error. Failures and interruptions return an error.
-// Context cancellation currently stops only the direct child, not descendants.
 func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	failed := Result{Outcome: Failure, ExitCode: -1}
 	if err := ctx.Err(); err != nil {
@@ -78,13 +77,15 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 		return failed, err
 	}
 	defer access.close()
-	probe := exec.CommandContext(ctx, path, "--version")
+	probe := exec.Command(path, "--version")
 	probe.Dir, probe.Env = req.Dir, env
 	var version cappedOutput
 	probe.Stdout, probe.Stderr = &version, &version
-	if err := probe.Run(); err != nil {
+	if err := runProcess(ctx, probe, shutdownGrace); err != nil {
 		if ctx.Err() != nil {
-			return Result{Outcome: Interrupted, ExitCode: -1}, ctx.Err()
+			result := processResult(probe)
+			result.Outcome = Interrupted
+			return result, err
 		}
 		return failed, fmt.Errorf("check Borg version: %w", err)
 	}
@@ -100,18 +101,19 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	if access.rsh != "" {
 		args = append([]string{"--rsh", access.rsh}, args...)
 	}
-	cmd := exec.CommandContext(ctx, path, args...)
+	cmd := exec.Command(path, args...)
 	cmd.Dir, cmd.Env, cmd.ExtraFiles = req.Dir, access.env, access.files
 	cmd.Stdout, cmd.Stderr = output, output
-	err = cmd.Run()
+	err = runProcess(ctx, cmd, shutdownGrace)
 	if ctx.Err() != nil && err != nil {
 		result := processResult(cmd)
 		result.Outcome = Interrupted
-		return result, ctx.Err()
+		return result, err
 	}
 	if err != nil {
 		var exit *exec.ExitError
-		if !errors.As(err, &exit) {
+		var lifecycle *lifecycleError
+		if errors.As(err, &lifecycle) || !errors.As(err, &exit) {
 			result := processResult(cmd)
 			result.Outcome = Failure
 			return result, fmt.Errorf("run Borg: %w", err)

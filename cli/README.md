@@ -35,9 +35,42 @@ arrays, environment overrides, and the working directory; the runner neither
 loads configuration nor invokes a shell. Results distinguish success, warnings,
 failures, and interruption while retaining the process exit code.
 
-The runner is not wired to CLI commands yet. Lock policy and complete
-subprocess-tree cancellation are separate work. Its current context cancellation
-stops only the direct Borg process.
+The runner is not wired to CLI operation commands yet.
+
+## Locking and cancellation
+
+Borg's repository and cache locks remain authoritative across Cairn invocations,
+future scheduler operations, and external Borg processes. `LockWaitArgs` prepares
+an explicit native timeout: 60 seconds by default, with zero requesting no waiting.
+Upcoming operation commands will expose `--lock-wait SECONDS`. This is not an
+overall operation or SSH connection timeout. Cairn does not queue operations,
+retry failures, bypass locks, or delete lock files. A lock timeout is an execution
+failure; native Borg diagnostics are streamed to the caller.
+
+Both the version probe and operation run in separate local Linux process groups.
+Cancellation forwards the initiating SIGINT or SIGTERM to the group; ordinary
+context cancellation and deadlines use SIGTERM. Remaining group members receive
+SIGKILL after a five-second grace period. Cairn waits for execution to stop,
+reaps its direct child, and closes owned descriptors before returning. Linux
+`/proc` is used to distinguish running descendants from orphan zombies awaiting
+system reaping. A functioning system reaper is needed for orphan zombies; Borg
+can still consider a zombie lock owner alive until it is reaped. The leader
+remains unreaped during cleanup to prevent reuse of its process-group ID.
+No deferred signal timers remain after an invocation.
+
+The CLI retains the initiating signal for exit 130 (SIGINT) or 143 (SIGTERM),
+even when child cleanup requires SIGKILL. Runner results retain raw process status;
+callers should use the cancellation context for the initiating signal rather than
+mistaking a cleanup signal for the user's request.
+
+This covers ordinary Borg, SSH, and passcommand descendants in the owned local
+group, not programs that deliberately detach or remote server processes. Cairn
+cannot guarantee graceful cleanup after its own SIGKILL or a host crash. Borg
+handles stale local locks on subsequent acquisition; zero wait may fail even
+after Borg removes a stale lock. Interrupted backups may leave checkpoint archives.
+Borg also needs a stable host identity to recognize stale local locks. In
+containers without a stable MAC, configure Borg's `BORG_HOST_ID` consistently;
+Cairn preserves it rather than inventing a host identity or removing foreign locks.
 
 ## Repository access
 
@@ -71,10 +104,11 @@ keys must already be usable non-interactively, for example through an agent.
 Local operations do not require OpenSSH. Cairn does not automatically set Borg
 repository-trust approvals; explicit inherited Borg trust settings remain in effect.
 
-CI exercises access against Borg 1.2.8 and 1.4.5 using disposable repositories and
-a fake SSH transport (not a live SSH server). To run these checks locally, install
+CI exercises access, contention, cancellation, and subsequent lock acquisition
+against Borg 1.2.8 and 1.4.5 using disposable repositories and a fake SSH transport
+(not a live SSH server). To run these checks locally, install
 a supported Borg binary named `borg` and run:
 
 ```sh
-CAIRN_TEST_BORG="$(command -v borg)" go test -race -count=1 -run TestRealBorgAccess -v ./internal/borg
+CAIRN_TEST_BORG="$(command -v borg)" go test -race -count=1 -v ./...
 ```
