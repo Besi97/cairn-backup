@@ -2,8 +2,12 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"strings"
+	"syscall"
 	"testing"
+
+	"github.com/Besi97/cairn-backup/cli/internal/cancellation"
 )
 
 func TestRun(t *testing.T) {
@@ -27,7 +31,7 @@ func TestRun(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			var stdout, stderr bytes.Buffer
-			if got := Run(tt.args, &stdout, &stderr, "0.1.0-test"); got != tt.code {
+			if got := Run(t.Context(), tt.args, &stdout, &stderr, "0.1.0-test"); got != tt.code {
 				t.Fatalf("exit code = %d, want %d; stderr: %s", got, tt.code, &stderr)
 			}
 			if tt.wantOut == "" {
@@ -50,5 +54,19 @@ func TestRun(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestInterruptedInvocation(t *testing.T) {
+	for _, signal := range []cancellation.Signal{cancellation.Signal(syscall.SIGINT), cancellation.Signal(syscall.SIGTERM)} {
+		ctx, cancel := context.WithCancelCause(t.Context())
+		cancel(signal)
+		var stdout, stderr bytes.Buffer
+		if got := Run(ctx, nil, &stdout, &stderr, "test"); got != 128+int(signal) {
+			t.Fatalf("exit code = %d", got)
+		}
+		if stdout.Len() != 0 || !strings.Contains(stderr.String(), "Interrupted:") || strings.Contains(stderr.String(), "usage") {
+			t.Fatalf("stdout = %q, stderr = %q", &stdout, &stderr)
+		}
 	}
 }

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"syscall"
@@ -14,6 +16,11 @@ import (
 )
 
 func main() {
+	probe := len(os.Args) == 2 && os.Args[1] == "--version"
+	if os.Getenv("FAKE_TREE") != "" && (!probe || os.Getenv("FAKE_BLOCK_PROBE") == "yes") {
+		processTree()
+		return
+	}
 	if filepath.Base(os.Args[0]) == "ssh" {
 		data, _ := json.Marshal(os.Args[1:])
 		if err := os.WriteFile(os.Getenv("FAKE_SSH_RECORD"), data, 0600); err != nil {
@@ -57,10 +64,11 @@ func main() {
 	if path := os.Getenv("FAKE_RECORD"); path != "" {
 		dir, _ := os.Getwd()
 		data, _ := json.Marshal(struct {
-			Args  []string
-			Dir   string
-			Value string
-		}{os.Args[1:], dir, os.Getenv("FAKE_VALUE")})
+			Args      []string
+			Dir       string
+			Value     string
+			ParentPID int
+		}{os.Args[1:], dir, os.Getenv("FAKE_VALUE"), os.Getppid()})
 		if err := os.WriteFile(path, data, 0600); err != nil {
 			panic(err)
 		}
@@ -86,4 +94,49 @@ func main() {
 	}
 	code, _ := strconv.Atoi(os.Getenv("FAKE_EXIT"))
 	os.Exit(code)
+}
+
+func processTree() {
+	base := os.Getenv("FAKE_TREE")
+	role := os.Getenv("FAKE_ROLE")
+	if role == "" {
+		role = "parent"
+	}
+	signals := make(chan os.Signal, 2)
+	if os.Getenv("FAKE_IGNORE") == "yes" {
+		signal.Ignore(syscall.SIGINT, syscall.SIGTERM)
+	} else {
+		signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+	}
+	if role == "parent" {
+		child := exec.Command(os.Args[0])
+		child.Env = append(os.Environ(), "FAKE_ROLE=child")
+		child.Stdout, child.Stderr = os.Stdout, os.Stderr
+		if err := child.Start(); err != nil {
+			panic(err)
+		}
+		if os.Getenv("FAKE_PARENT_EXIT") == "yes" {
+			deadline := time.Now().Add(5 * time.Second)
+			for {
+				if _, err := os.Stat(base + ".child"); err == nil {
+					return
+				}
+				if time.Now().After(deadline) {
+					panic("child did not become ready")
+				}
+				time.Sleep(time.Millisecond)
+			}
+		}
+	}
+	if err := os.WriteFile(base+"."+role, []byte(strconv.Itoa(os.Getpid())), 0600); err != nil {
+		panic(err)
+	}
+	for {
+		select {
+		case sig := <-signals:
+			_ = os.WriteFile(base+"."+role+".signal", []byte(strconv.Itoa(int(sig.(syscall.Signal)))), 0600)
+			return
+		case <-time.After(time.Second):
+		}
+	}
 }

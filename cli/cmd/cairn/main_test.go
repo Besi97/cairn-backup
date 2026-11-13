@@ -1,11 +1,17 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
+
+	"github.com/Besi97/cairn-backup/cli/internal/cli"
 )
 
 func TestBinary(t *testing.T) {
@@ -57,5 +63,65 @@ func TestBinary(t *testing.T) {
 func TestDevelopmentVersion(t *testing.T) {
 	if version != "dev" {
 		t.Errorf("default version = %q, want dev", version)
+	}
+}
+
+func TestSignalContextHelper(t *testing.T) {
+	if os.Getenv("CAIRN_SIGNAL_HELPER") != "yes" {
+		return
+	}
+	ctx, stop := signalContext()
+	_, _ = os.Stdout.WriteString("ready\n")
+	<-ctx.Done()
+	code := cli.Run(ctx, nil, os.Stdout, os.Stderr, "test")
+	stop()
+	os.Exit(code)
+}
+
+func TestSignalExitCodes(t *testing.T) {
+	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
+		t.Run(sig.String(), func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=^TestSignalContextHelper$")
+			cmd.Env = append(os.Environ(), "CAIRN_SIGNAL_HELPER=yes")
+			stdout, err := cmd.StdoutPipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var stderr bytes.Buffer
+			cmd.Stderr = &stderr
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan struct{})
+			go func() { _ = cmd.Wait(); close(done) }()
+			t.Cleanup(func() {
+				_ = cmd.Process.Kill()
+				<-done
+			})
+			ready := make(chan bool, 1)
+			go func() {
+				scanner := bufio.NewScanner(stdout)
+				ready <- scanner.Scan() && scanner.Text() == "ready"
+			}()
+			select {
+			case ok := <-ready:
+				if !ok {
+					t.Fatal("signal helper did not become ready")
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("signal registration timed out")
+			}
+			if err := cmd.Process.Signal(sig); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-done:
+				if cmd.ProcessState.ExitCode() != 128+int(sig) || !strings.Contains(stderr.String(), "Interrupted:") {
+					t.Fatalf("exit = %v, stderr = %q", cmd.ProcessState, &stderr)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("signal helper did not exit")
+			}
+		})
 	}
 }

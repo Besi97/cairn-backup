@@ -17,18 +17,7 @@ import (
 // Opt in with CAIRN_TEST_BORG=/absolute/path/to/borg. Each run uses fresh local
 // repositories and isolated Borg state; no user repository or SSH host is used.
 func TestRealBorgAccess(t *testing.T) {
-	binary := os.Getenv("CAIRN_TEST_BORG")
-	if binary == "" {
-		t.Skip("set CAIRN_TEST_BORG to exercise real Borg access")
-	}
-	isolateCredentials(t)
-	state := t.TempDir()
-	for _, key := range []string{"BORG_BASE_DIR", "BORG_CONFIG_DIR", "BORG_CACHE_DIR", "BORG_SECURITY_DIR", "BORG_KEYS_DIR"} {
-		t.Setenv(key, filepath.Join(state, key))
-	}
-	// Trust is explicit only for these disposable test repositories.
-	t.Setenv("BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK", "yes")
-	t.Setenv("BORG_RELOCATED_REPO_ACCESS_IS_OK", "no")
+	binary := realBorgEnvironment(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()
 	runner := Runner{Executable: binary}
