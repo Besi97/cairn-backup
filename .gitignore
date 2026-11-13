@@ -1,2 +1,5 @@
 # Local planning documents
 /plans/
+
+# Local CLI build output
+/cli/bin/
