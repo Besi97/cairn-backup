@@ -28,7 +28,7 @@ jobs:
           go mod tidy
           git diff --exit-code -- go.mod go.sum
 
-  borg-access:
+  borg-integration:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -58,7 +58,7 @@ jobs:
           curl --fail --location --retry 3 "https://github.com/borgbackup/borg/releases/download/$BORG_VERSION/$BORG_ASSET" --output "$RUNNER_TEMP/borg"
           echo "$BORG_SHA256  $RUNNER_TEMP/borg" | sha256sum --check
           chmod +x "$RUNNER_TEMP/borg"
-      - name: Test repository access
+      - name: Test with real Borg
         env:
           CAIRN_TEST_BORG: ${{ runner.temp }}/borg
-        run: go test -race -count=1 -run TestRealBorgAccess -v ./internal/borg
+        run: go test -race -count=1 -v ./...
