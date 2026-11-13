@@ -73,6 +73,16 @@ func main() {
 			panic(err)
 		}
 	}
+	if path := os.Getenv("FAKE_CALLS"); path != "" {
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		if err != nil {
+			panic(err)
+		}
+		if err := json.NewEncoder(file).Encode(os.Args[1:]); err != nil {
+			panic(err)
+		}
+		_ = file.Close()
+	}
 	fmt.Fprint(os.Stdout, "stdout diagnostic\n")
 	fmt.Fprint(os.Stderr, "stderr diagnostic\n")
 	if release := os.Getenv("FAKE_RELEASE"); release != "" {
