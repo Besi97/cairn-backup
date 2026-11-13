@@ -40,10 +40,11 @@ type Request struct {
 	Dir         string
 	Env         map[string]string
 	Diagnostics io.Writer
+	Access      AccessOptions
 }
 
 // Runner uses Borg from PATH unless Executable selects an explicit binary.
-// It does not implement credential policy, lock policy, or process-tree cleanup.
+// It does not implement lock policy or process-tree cleanup.
 type Runner struct {
 	Executable string
 }
@@ -72,6 +73,11 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 		return failed, fmt.Errorf("resolve Borg executable: %w", err)
 	}
 	env := environment(req.Env)
+	access, err := prepareAccess(req.Access, env)
+	if err != nil {
+		return failed, err
+	}
+	defer access.close()
 	probe := exec.CommandContext(ctx, path, "--version")
 	probe.Dir, probe.Env = req.Dir, env
 	var version cappedOutput
@@ -85,14 +91,17 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	if err := supportedVersion(string(version.data)); err != nil {
 		return failed, err
 	}
-
 	writer := req.Diagnostics
 	if writer == nil {
 		writer = io.Discard
 	}
 	output := &lockedWriter{writer: writer}
-	cmd := exec.CommandContext(ctx, path, req.Args...)
-	cmd.Dir, cmd.Env = req.Dir, env
+	args := req.Args
+	if access.rsh != "" {
+		args = append([]string{"--rsh", access.rsh}, args...)
+	}
+	cmd := exec.CommandContext(ctx, path, args...)
+	cmd.Dir, cmd.Env, cmd.ExtraFiles = req.Dir, access.env, access.files
 	cmd.Stdout, cmd.Stderr = output, output
 	err = cmd.Run()
 	if ctx.Err() != nil && err != nil {
