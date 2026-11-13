@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -14,25 +13,6 @@ import (
 
 	"github.com/Besi97/cairn-backup/cli/internal/cancellation"
 )
-
-func awaitFile(t *testing.T, path string) []byte {
-	t.Helper()
-	deadline := time.NewTimer(5 * time.Second)
-	defer deadline.Stop()
-	tick := time.NewTicker(5 * time.Millisecond)
-	defer tick.Stop()
-	for {
-		data, err := os.ReadFile(path)
-		if err == nil && len(data) != 0 {
-			return data
-		}
-		select {
-		case <-deadline.C:
-			t.Fatalf("process did not create %s", path)
-		case <-tick.C:
-		}
-	}
-}
 
 func TestProcessGroupCancellation(t *testing.T) {
 	for _, ignore := range []bool{false, true} {

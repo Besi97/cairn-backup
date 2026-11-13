@@ -116,16 +116,6 @@ func TestPassphraseForwarding(t *testing.T) {
 	}
 }
 
-func isolateCredentials(t *testing.T) {
-	t.Helper()
-	for _, key := range []string{"BORG_PASSPHRASE", "BORG_PASSCOMMAND", "BORG_PASSPHRASE_FD"} {
-		t.Setenv(key, "")
-		if err := os.Unsetenv(key); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
 func TestPipePassphrase(t *testing.T) {
 	isolateCredentials(t)
 	reader, writer, err := os.Pipe()
