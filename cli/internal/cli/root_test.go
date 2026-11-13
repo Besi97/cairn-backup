@@ -24,7 +24,8 @@ func TestRun(t *testing.T) {
 		{name: "version", args: []string{"--version"}, wantOut: "cairn 0.1.0-test\n"},
 		{name: "unknown flag", args: []string{"--unknown"}, code: 3, wantErr: "unknown flag: --unknown"},
 		{name: "unknown command", args: []string{"missing"}, code: 3, wantErr: "unknown command"},
-		{name: "unimplemented backup", args: []string{"backup"}, code: 3, wantErr: "unknown command"},
+		{name: "backup needs inputs", args: []string{"backup"}, code: 3, wantErr: "exactly one"},
+		{name: "backup help", args: []string{"backup", "--help"}, wantOut: "--repository"},
 		{name: "positional after separator", args: []string{"--", "source"}, code: 3, wantErr: "unknown command"},
 	}
 	for _, tt := range tests {

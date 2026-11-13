@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -15,11 +14,7 @@ import (
 )
 
 func TestBinary(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "cairn")
-	build := exec.Command("go", "build", "-ldflags=-X main.version=0.1.0-test", "-o", binary, ".")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, out)
-	}
+	binary := buildExecutable(t, "cairn", ".")
 	for _, tt := range []struct {
 		name string
 		args []string
@@ -27,6 +22,7 @@ func TestBinary(t *testing.T) {
 		out  string
 	}{
 		{name: "help without dependencies", args: []string{"--help"}, out: "Usage:"},
+		{name: "backup help without dependencies", args: []string{"backup", "--help"}, out: "--repository"},
 		{name: "version metadata", args: []string{"--version"}, out: "cairn 0.1.0-test\n"},
 		{name: "invalid invocation", args: []string{"--unknown"}, code: 3},
 	} {

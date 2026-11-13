@@ -1,8 +1,9 @@
-// Package cli handles Cairn's command-line interface without depending on Borg.
+// Package cli handles Cairn's command-line interface and operation outcomes.
 package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -13,8 +14,26 @@ import (
 
 const (
 	exitSuccess      = 0
+	exitWarning      = 1
+	exitFailure      = 2
 	exitInvalidInput = 3
 )
+
+// exitError distinguishes an executed operation from invalid command inputs.
+// Warnings need an exit code even though the runner returns no error.
+type exitError struct {
+	code int
+	err  error
+}
+
+func (e *exitError) Error() string {
+	if e.err != nil {
+		return e.err.Error()
+	}
+	return fmt.Sprintf("operation completed with exit code %d", e.code)
+}
+
+func (e *exitError) Unwrap() error { return e.err }
 
 // Run executes one invocation with isolated arguments and output streams.
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version string) int {
@@ -32,6 +51,13 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version s
 		return 128 + int(cancellation.From(ctx))
 	}
 	if err != nil {
+		var operation *exitError
+		if errors.As(err, &operation) {
+			if operation.err != nil {
+				fmt.Fprintf(stderr, "Error: %v\n", operation.err)
+			}
+			return operation.code
+		}
 		fmt.Fprintf(stderr, "Error: %v\nRun 'cairn --help' for usage.\n", err)
 		return exitInvalidInput
 	}
@@ -53,5 +79,6 @@ func newRootCommand(version string) *cobra.Command {
 	}
 	cmd.CompletionOptions.DisableDefaultCmd = true
 	cmd.SetVersionTemplate("cairn {{.Version}}\n")
+	cmd.AddCommand(newBackupCommand())
 	return cmd
 }
