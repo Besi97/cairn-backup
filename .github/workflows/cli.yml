@@ -27,3 +27,38 @@ jobs:
         run: |
           go mod tidy
           git diff --exit-code -- go.mod go.sum
+
+  borg-integration:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - version: 1.2.8
+            asset: borg-linux64
+            sha256: cfa50fb704a93d3a4fa258120966345fddb394f960dca7c47fcb774d0172f40b
+          - version: 1.4.5
+            asset: borg-linux-glibc231-x86_64
+            sha256: c8457f70660064d0f45b38283ab4cc65b342970012013201d3aec713a75898fb
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+      - name: Download Borg
+        env:
+          BORG_VERSION: ${{ matrix.version }}
+          BORG_ASSET: ${{ matrix.asset }}
+          BORG_SHA256: ${{ matrix.sha256 }}
+        run: |
+          curl --fail --location --retry 3 "https://github.com/borgbackup/borg/releases/download/$BORG_VERSION/$BORG_ASSET" --output "$RUNNER_TEMP/borg"
+          echo "$BORG_SHA256  $RUNNER_TEMP/borg" | sha256sum --check
+          chmod +x "$RUNNER_TEMP/borg"
+      - name: Test with real Borg
+        env:
+          CAIRN_TEST_BORG: ${{ runner.temp }}/borg
+        run: go test -race -count=1 -v ./...
