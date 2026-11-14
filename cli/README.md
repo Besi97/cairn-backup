@@ -127,15 +127,24 @@ repository disk space until a separate compaction operation.
 
 ## Configured workflows
 
-Run one configured workflow immediately, without a scheduler:
+List configured workflow names in lexicographical order, then run one immediately
+without a scheduler:
 
 ```sh
 cairn config check --config ./config.yaml
+cairn workflow list --config ./config.yaml
 cairn workflow run nightly --config ./config.yaml
 ```
 
-Omit `--config` to discover user then system configuration. The whole selected
-file is validated before execution, and workflow names are case-sensitive.
+Omit `--config` to discover user then system configuration. Listing validates
+the whole selected file but does not execute Borg or access repositories,
+credential files, or source paths. An empty workflow map prints nothing and
+succeeds. Workflow names are case-sensitive.
+
+The listing command exits `0` on success, `3` for invalid arguments/configuration,
+and `2` if output cannot be written.
+
+For execution, the whole selected file is validated before tasks start.
 Stages run in order; tasks within each stage run concurrently. Warnings or
 failures stop subsequent stages only after all siblings finish. Cancellation
 stops active operations and waits for subprocess cleanup.
