@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 )
@@ -55,6 +56,41 @@ func TestCredentialPrecedence(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestConcurrentInlineCredentials(t *testing.T) {
+	isolateCredentials(t)
+	t.Setenv("BORG_PASSPHRASE", "parent unchanged")
+	var group sync.WaitGroup
+	for _, secret := range []string{"", "first secret $HOME {hostname}", "second secret\n"} {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			req := request()
+			req.Access.Passphrase = &secret
+			req.Env["BORG_PASSPHRASE"] = "inherited"
+			req.Env["BORG_PASSCOMMAND"] = "must not execute"
+			req.Env["BORG_PASSPHRASE_FD"] = "invalid"
+			req.Env["FAKE_CHECK_INLINE"] = fmt.Sprintf("%x", sha256.Sum256([]byte(secret)))
+			var output bytes.Buffer
+			req.Diagnostics = &output
+			result, err := (Runner{Executable: fakeBorg}).Run(t.Context(), req)
+			if err != nil || result.Outcome != Success {
+				t.Errorf("inline credential forwarding: outcome=%v err=%v", result.Outcome, err)
+			}
+			if secret != "" && strings.Contains(output.String(), secret) {
+				t.Error("inline secret in diagnostics")
+			}
+		}()
+	}
+	group.Wait()
+	if os.Getenv("BORG_PASSPHRASE") != "parent unchanged" {
+		t.Fatal("parent environment changed")
+	}
+	secret := "do not echo"
+	if _, err := prepareAccess(AccessOptions{Passphrase: &secret, PassphraseFile: "missing"}, nil); err == nil || strings.Contains(err.Error(), secret) {
+		t.Fatal("expected credential exclusivity error without secret")
 	}
 }
 

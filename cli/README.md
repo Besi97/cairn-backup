@@ -1,7 +1,7 @@
 # Cairn CLI
 
 The CLI provides standalone backups, pruning, and compaction, help, and version
-output, plus optional configuration checking. Workflow execution and scheduling
+output, plus optional configuration checking and manual workflows. Scheduling
 will be added separately. Install stable Borg 1.x
 (at least 1.2.8) separately; SSH repositories also require OpenSSH.
 
@@ -23,7 +23,7 @@ repository, opening credential files, or checking source paths. It exits with
 tries the user's XDG configuration location, then `/etc/cairn/config.yaml`.
 Selected invalid/unreadable files are errors; files are never merged.
 
-Workflow execution and scheduling are not implemented yet. Cron is checked only
+Scheduling is not implemented yet. Cron is checked only
 as a nonempty string until scheduling syntax is defined. Standalone operations,
 help, and version never load configuration.
 
@@ -124,6 +124,31 @@ choices after archives or time have changed.
 
 Prune never invokes compact. Deleting archives does not reclaim eligible
 repository disk space until a separate compaction operation.
+
+## Configured workflows
+
+Run one configured workflow immediately, without a scheduler:
+
+```sh
+cairn config check --config ./config.yaml
+cairn workflow run nightly --config ./config.yaml
+```
+
+Omit `--config` to discover user then system configuration. The whole selected
+file is validated before execution, and workflow names are case-sensitive.
+Stages run in order; tasks within each stage run concurrently. Warnings or
+failures stop subsequent stages only after all siblings finish. Cancellation
+stops active operations and waits for subprocess cleanup.
+
+Workflows reuse the standalone backup, prune, and compact operations. Their
+fields cannot be overridden with standalone flags, and workflow dry-run is not
+supported. Standalone commands still never discover configuration.
+
+Exit codes: `0` success, `1` warnings, `2` execution failure, `3` invalid input;
+Cairn cancellation exits `130` (SIGINT) or `143` (SIGTERM).
+Scheduling and cross-process workflow overlap protection are not implemented yet.
+See the [configuration contract](../docs/configuration.md) and
+[example configuration](examples/config.yaml).
 
 ## Compact
 

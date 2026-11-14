@@ -15,6 +15,9 @@ import (
 // Request.Dir independently sets Borg's working directory for source paths.
 // SSH must be set for an SSH repository. Local operations do not require ssh.
 type AccessOptions struct {
+	// Passphrase distinguishes absence from an explicit empty inline credential.
+	// It is supplied only to the operation, never to the version probe.
+	Passphrase     *string
 	PassphraseFile string
 	IdentityFile   string
 	SSH            bool
@@ -38,6 +41,9 @@ func prepareAccess(options AccessOptions, env []string) (a preparedAccess, err e
 			a.close()
 		}
 	}()
+	if options.Passphrase != nil && options.PassphraseFile != "" {
+		return a, errors.New("passphrase and passphrase file are mutually exclusive")
+	}
 	values := make(map[string]string)
 	for _, entry := range env {
 		key, value, _ := strings.Cut(entry, "=")
@@ -52,6 +58,10 @@ func prepareAccess(options AccessOptions, env []string) (a preparedAccess, err e
 	n, descriptorErr := protectDescriptor(fd)
 	var file *os.File
 	switch {
+	case options.Passphrase != nil:
+		values["BORG_PASSPHRASE"] = *options.Passphrase
+		delete(values, "BORG_PASSCOMMAND")
+		delete(values, "BORG_PASSPHRASE_FD")
 	case options.PassphraseFile != "":
 		path, pathErr := filepath.Abs(options.PassphraseFile)
 		if pathErr != nil {
