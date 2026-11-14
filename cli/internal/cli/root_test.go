@@ -28,6 +28,8 @@ func TestRun(t *testing.T) {
 		{name: "backup help", args: []string{"backup", "--help"}, wantOut: "--repository"},
 		{name: "prune needs inputs", args: []string{"prune"}, code: 3, wantErr: "repository"},
 		{name: "prune help", args: []string{"prune", "--help"}, wantOut: "--keep-within"},
+		{name: "compact needs inputs", args: []string{"compact"}, code: 3, wantErr: "repository"},
+		{name: "compact help", args: []string{"compact", "--help"}, wantOut: "--repository"},
 		{name: "positional after separator", args: []string{"--", "source"}, code: 3, wantErr: "unknown command"},
 	}
 	for _, tt := range tests {

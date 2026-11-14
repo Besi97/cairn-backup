@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -213,4 +214,26 @@ func assertArchiveNames(t *testing.T, archives map[string]string, names ...strin
 			t.Fatalf("missing %q in archives %v", name, archives)
 		}
 	}
+}
+
+func repositorySegmentBytes(t *testing.T, repository string) int64 {
+	t.Helper()
+	var total int64
+	err := filepath.WalkDir(filepath.Join(repository, "data"), func(_ string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.Type().IsRegular() {
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			total += info.Size()
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return total
 }

@@ -21,6 +21,7 @@ func TestOperationBinary(t *testing.T) {
 	}{
 		{"Backup", []string{"backup", "--repository", "repo", "--archive-name", "name", "source"}},
 		{"Prune", []string{"prune", "--repository", "repo", "--archive-prefix", "documents", "--keep-daily", "7"}},
+		{"Compact", []string{"compact", "--repository", "repo"}},
 	} {
 		t.Run(operation.name, func(t *testing.T) {
 			for _, tt := range []struct {

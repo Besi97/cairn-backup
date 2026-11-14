@@ -1,7 +1,7 @@
 # Cairn CLI
 
-The CLI provides standalone backups and pruning, help, and version output.
-Compaction, configuration, and scheduling will be added separately. Install stable Borg 1.x
+The CLI provides standalone backups, pruning, and compaction, help, and version
+output. Configuration and scheduling will be added separately. Install stable Borg 1.x
 (at least 1.2.8) separately; SSH repositories also require OpenSSH.
 
 ## Backup
@@ -102,6 +102,38 @@ choices after archives or time have changed.
 Prune never invokes compact. Deleting archives does not reclaim eligible
 repository disk space until a separate compaction operation.
 
+## Compact
+
+Reclaim eligible space across an existing local or SSH repository without
+configuration, a scheduler, or a preceding backup or prune.
+
+```sh
+cairn compact --repository /backups/repo
+
+cairn compact --repository ssh://user@backup-host/./repo \
+  --identity-file ~/.ssh/backup --lock-wait 60
+```
+
+Require an explicit nonempty `--repository`; there is no `BORG_REPO` fallback.
+Compaction applies to the **whole repository**, not an archive prefix or job.
+It does not delete archives, initialize repositories, or invoke backup or prune.
+There is no confirmation prompt or `--yes` flag.
+
+Borg retains its default compaction threshold (10%). Native progress and verbose
+space-reclamation estimates go to stderr; success does not promise that any space
+was eligible to reclaim. Cairn does not expose threshold tuning, legacy commit
+cleanup, or arbitrary Borg options.
+
+Compaction does not need the repository encryption key or passphrase, even for
+encrypted repositories. SSH authentication and host verification still apply.
+The optional `--passphrase-file` remains available for interface consistency;
+explicitly supplied files and inherited credential descriptors receive the same
+validation as other operations. Relative repository and access-file paths resolve
+from Cairn's invocation directory.
+
+`--dry-run` is rejected: Borg 1.2.8 has no compaction preview, and Borg 1.4.5's
+option merely does nothing rather than providing a useful preview.
+
 ## Output and exit codes
 
 Operation status, Borg progress/statistics, file/archive lists, warnings, and errors go
@@ -144,9 +176,9 @@ make build VERSION=0.1.0
 ```
 
 `cmd/cairn` contains the process entry point. `internal/cli` handles arguments
-and output; `internal/backup` and `internal/prune` prepare operation requests
-without Cobra or configuration. Help and version output do not require Borg or
-configuration.
+and output; `internal/backup`, `internal/prune`, and `internal/compact` prepare
+operation requests without Cobra or configuration. Help and version output do
+not require Borg or configuration.
 
 `internal/borg` provides the shared process runner. It checks the selected
 executable's version before each operation, accepts stable Borg 1.x from 1.2.8,
@@ -160,7 +192,7 @@ failures, and interruption while retaining the process exit code.
 Borg's repository and cache locks remain authoritative across Cairn invocations,
 future scheduler operations, and external Borg processes. `LockWaitArgs` prepares
 an explicit native timeout: 60 seconds by default, with zero requesting no waiting.
-Backup and prune expose `--lock-wait SECONDS`. This is not an
+Backup, prune, and compact expose `--lock-wait SECONDS`. This is not an
 overall operation or SSH connection timeout. Cairn does not queue operations,
 retry failures, bypass locks, or delete lock files. A lock timeout is an execution
 failure; native Borg diagnostics are streamed to the caller.
@@ -193,7 +225,8 @@ This covers ordinary Borg, SSH, and passcommand descendants in the owned local
 group, not programs that deliberately detach or remote server processes. Cairn
 cannot guarantee graceful cleanup after its own SIGKILL or a host crash.
 Interrupted backups may leave checkpoint archives. Interrupted pruning may have
-already committed some deletions; cancellation is not a rollback guarantee.
+already committed some deletions, and interrupted compaction may have reclaimed
+some space; cancellation is not a rollback guarantee.
 
 ## Repository access
 
@@ -229,8 +262,9 @@ repository-trust approvals; explicit inherited Borg trust settings remain in eff
 
 ## Integration tests
 
-CI exercises standalone backups and pruning, access, contention, cancellation, and subsequent lock acquisition
-against Borg 1.2.8 and 1.4.5 using disposable repositories and a fake SSH transport
+CI exercises standalone backups, pruning, and compaction, access, contention,
+cancellation, and subsequent lock acquisition against Borg 1.2.8 and 1.4.5 using
+disposable repositories and a fake SSH transport
 (not a live SSH server). To run these checks locally, install
 a supported Borg binary named `borg` and run:
 
