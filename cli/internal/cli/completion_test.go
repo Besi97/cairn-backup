@@ -91,6 +91,15 @@ func TestBackupSourceCompletionUsesSourceRoot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "subdir", "file-nested"), nil, 0600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(root, "real", "subdir"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "real", "needle-file"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("real", "subdir"), filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
 
 	code, stdout, stderr := runCompletion(t, "backup", "--source-root", root, "file-")
 	if code != 0 || stdout != "file-one\nfile-two\n:4\n" {
@@ -118,6 +127,17 @@ func TestBackupSourceCompletionUsesSourceRoot(t *testing.T) {
 	code, stdout, stderr = runCompletion(t, "backup", "--source-root", root, "linked")
 	if code != 0 || stdout != "linked/\n:6\n" {
 		t.Fatalf("symlinked directory completion: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+
+	code, stdout, stderr = runCompletion(t, "backup", "--source-root", root, "link/../needle")
+	if code != 0 || stdout != "link/../needle-file\n:4\n" {
+		t.Fatalf("symlink parent traversal completion: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+
+	rootThroughSymlink := filepath.Join(root, "link") + string(filepath.Separator) + ".."
+	code, stdout, stderr = runCompletion(t, "backup", "--source-root", rootThroughSymlink, "needle")
+	if code != 0 || stdout != "needle-file\n:4\n" {
+		t.Fatalf("source-root symlink parent traversal: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 
 	code, stdout, stderr = runCompletion(t, "backup", "--source-root", root, ".")

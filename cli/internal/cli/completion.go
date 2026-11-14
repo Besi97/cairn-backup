@@ -55,7 +55,8 @@ func completeBackupSources(cmd *cobra.Command, _ []string, toComplete string) ([
 	if strings.HasSuffix(toComplete, string(filepath.Separator)) {
 		dir, prefix = toComplete, ""
 	}
-	entries, err := os.ReadDir(filepath.Join(sourceRoot, dir))
+	lookupDir := appendPathPreservingComponents(sourceRoot, dir)
+	entries, err := os.ReadDir(lookupDir)
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
@@ -68,7 +69,7 @@ func completeBackupSources(cmd *cobra.Command, _ []string, toComplete string) ([
 			continue
 		}
 		name = dir + name
-		info, err := os.Stat(filepath.Join(sourceRoot, dir, entry.Name()))
+		info, err := os.Stat(appendPathPreservingComponents(lookupDir, entry.Name()))
 		if err == nil && info.IsDir() {
 			name += string(filepath.Separator)
 			directive |= cobra.ShellCompDirectiveNoSpace
@@ -76,4 +77,14 @@ func completeBackupSources(cmd *cobra.Command, _ []string, toComplete string) ([
 		completions = append(completions, cobra.Completion(name))
 	}
 	return completions, directive
+}
+
+func appendPathPreservingComponents(base, suffix string) string {
+	if suffix == "" {
+		return base
+	}
+	if strings.HasSuffix(base, string(filepath.Separator)) {
+		return base + suffix
+	}
+	return base + string(filepath.Separator) + suffix
 }
