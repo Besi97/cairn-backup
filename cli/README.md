@@ -38,15 +38,16 @@ cairn completion fish
 cairn completion powershell
 ```
 
-Each command prints setup instructions for loading the script in the current
-shell or installing it for future sessions. Bash completion requires the
+Use `cairn completion SHELL --help` for setup instructions. Running the command
+without `--help` prints the completion script. Bash completion requires the
 `bash-completion` package. For PowerShell, add
 `cairn completion powershell | Out-String | Invoke-Expression` to your PowerShell
 profile. Completion is available wherever the Cairn binary runs.
 
 Completions include commands, flags, local paths for path-valued options and
-backup sources, and directories for `--source-root`. SSH-style repository values
-do not trigger local path suggestions. Archive names and patterns are treated as
+backup sources, and directories for `--source-root`. Relative backup source
+suggestions follow the selected `--source-root`. SSH-style repository values do
+not trigger local path suggestions. Archive names and patterns are treated as
 literal Borg inputs rather than filesystem paths.
 
 For `cairn workflow run`, Cairn reads and validates the selected configuration

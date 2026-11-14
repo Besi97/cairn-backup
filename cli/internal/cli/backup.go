@@ -22,6 +22,7 @@ func newBackupCommand() *cobra.Command {
 			"Use -- before source paths beginning with a hyphen.\n\n" +
 			"A dry-run lists files without creating an archive. It does not verify repository access,\n" +
 			"credentials, or that all file contents can be read.",
+		ValidArgsFunction: completeBackupSources,
 		RunE: func(cmd *cobra.Command, sources []string) error {
 			if cmd.Flags().Changed("archive-prefix") == cmd.Flags().Changed("archive-name") {
 				return fmt.Errorf("provide exactly one --archive-prefix or --archive-name")
