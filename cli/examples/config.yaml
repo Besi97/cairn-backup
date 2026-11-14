@@ -1,0 +1,78 @@
+# yaml-language-server: $schema=../schema/config-v1.schema.json
+# Schema example, not yet executable: configuration loading and workflow
+# execution follow in issues #53 and #54. Replace all example paths and secrets.
+version: 1
+
+repositories:
+  local:
+    location: /mnt/backups/borg
+    passphrase_file: ./secrets/local-passphrase
+
+  offsite:
+    location: ssh://backup@backup.example.com/./cairn
+    # Inline passphrases are supported, but stored in plaintext.
+    # Use either passphrase or passphrase_file, never both.
+    passphrase: "example-only-replace-me"
+    identity_file: ~/.ssh/cairn-offsite
+
+workflows:
+  nightly:
+    # Scheduling details (including timezone) are settled in issue #55.
+    cron: "0 2 * * *"
+    stages:
+      # Tasks within a stage run concurrently.
+      - tasks:
+          - type: backup
+            repository: local
+            archive_prefix: "{hostname}-documents"
+            source_root: ~/Documents
+            sources:
+              - .
+            exclude:
+              - "*.tmp"
+              - "cache"
+
+          - type: backup
+            repository: offsite
+            archive_prefix: "{hostname}-documents"
+            source_root: ~/Documents
+            sources:
+              - .
+            exclude:
+              - "*.tmp"
+              - "cache"
+
+      # Advance only if every backup succeeded without warnings.
+      - tasks:
+          - type: prune
+            repository: local
+            archive_prefix: "{hostname}-documents"
+            keep_daily: 7
+            keep_weekly: 4
+            keep_monthly: 12
+
+          - type: prune
+            repository: offsite
+            archive_prefix: "{hostname}-documents"
+            keep_daily: 14
+            keep_monthly: 12
+
+      # Compaction is repository-wide, not limited to the pruned prefix.
+      - tasks:
+          - type: compact
+            repository: local
+            lock_wait: 0
+
+          - type: compact
+            repository: offsite
+
+  before_upgrade:
+    # No cron: run manually without starting the scheduler.
+    stages:
+      - tasks:
+          - type: backup
+            repository: local
+            archive_prefix: "{hostname}-before-upgrade"
+            source_root: /etc
+            sources:
+              - .
