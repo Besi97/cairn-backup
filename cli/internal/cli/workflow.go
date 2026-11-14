@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
@@ -11,8 +12,37 @@ import (
 )
 
 func newWorkflowCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "workflow", Short: "Run configured workflows"}
-	var path string
+	cmd := &cobra.Command{Use: "workflow", Short: "List and run configured workflows"}
+	var listPath string
+	list := &cobra.Command{
+		Use:   "list",
+		Short: "List configured workflow names",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			options, err := config.Environment()
+			if err != nil {
+				return err
+			}
+			options.Path, options.Explicit = listPath, cmd.Flags().Changed("config")
+			selected, err := config.Load(options)
+			if err != nil {
+				return err
+			}
+			names := make([]string, 0, len(selected.Workflows))
+			for name := range selected.Workflows {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			for _, name := range names {
+				if _, err := fmt.Fprintln(cmd.OutOrStdout(), name); err != nil {
+					return &exitError{code: exitFailure, err: err}
+				}
+			}
+			return nil
+		},
+	}
+	list.Flags().StringVar(&listPath, "config", "", "Configuration file (otherwise discover user then system configuration)")
+	var runPath string
 	run := &cobra.Command{
 		Use:   "run NAME",
 		Short: "Run a workflow now, without a scheduler",
@@ -26,7 +56,7 @@ func newWorkflowCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			options.Path, options.Explicit = path, cmd.Flags().Changed("config")
+			options.Path, options.Explicit = runPath, cmd.Flags().Changed("config")
 			selected, err := config.Load(options)
 			if err != nil {
 				return err
@@ -60,7 +90,7 @@ func newWorkflowCommand() *cobra.Command {
 			return nil
 		},
 	}
-	run.Flags().StringVar(&path, "config", "", "Configuration file (otherwise discover user then system configuration)")
-	cmd.AddCommand(run)
+	run.Flags().StringVar(&runPath, "config", "", "Configuration file (otherwise discover user then system configuration)")
+	cmd.AddCommand(list, run)
 	return cmd
 }

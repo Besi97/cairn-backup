@@ -123,11 +123,18 @@ or time out; Cairn does not serialize them implicitly.
 The manual command contract is:
 
 ```sh
+cairn workflow list [--config PATH]
 cairn workflow run NAME [--config PATH]
 ```
 
-It runs the workflow without starting a scheduler and does not require `cron`.
-Standalone command
+`workflow list` validates the entire selected configuration and prints workflow
+names in lexicographical order, one per line. It does not execute Borg, access
+repositories, open credential files, or check source paths. An empty workflows
+map produces no output and succeeds. It exits `3` for invalid arguments or
+configuration and `2` if output cannot be written.
+
+`workflow run` runs the workflow without starting a scheduler and does not
+require `cron`. Standalone command
 flags do not override workflow task fields. Persisted `dry_run` settings,
 confirmation flags, arbitrary Borg options, and task-level credential/location
 overrides are not supported.
