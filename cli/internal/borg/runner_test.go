@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -128,11 +129,41 @@ type failingWriter struct{ err error }
 func (w failingWriter) Write([]byte) (int, error) { return 0, w.err }
 
 func TestDiagnosticWriteFailure(t *testing.T) {
-	want := errors.New("diagnostic destination failed")
+	for _, code := range []string{"0", "1", "2", "sigpipe"} {
+		t.Run(code, func(t *testing.T) {
+			want := errors.New("diagnostic destination failed")
+			req := request()
+			req.Diagnostics = failingWriter{want}
+			if code == "sigpipe" {
+				req.Env["FAKE_OUTPUT_FLOOD"] = "yes"
+			} else {
+				req.Env["FAKE_EXIT"] = code
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			result, err := (Runner{Executable: fakeBorg}).Run(ctx, req)
+			if result.Outcome != Failure || !errors.Is(err, want) {
+				t.Fatalf("result = %+v, error = %v", result, err)
+			}
+			if strings.Count(err.Error(), want.Error()) != 1 {
+				t.Fatalf("writer error should appear once: %v", err)
+			}
+			if code == "sigpipe" && result.Signal != int(syscall.SIGPIPE) {
+				t.Fatalf("expected child SIGPIPE, got %+v", result)
+			}
+		})
+	}
+}
+
+type shortWriter struct{}
+
+func (shortWriter) Write(p []byte) (int, error) { return len(p) - 1, nil }
+
+func TestDiagnosticShortWrite(t *testing.T) {
 	req := request()
-	req.Diagnostics = failingWriter{want}
+	req.Diagnostics = shortWriter{}
 	result, err := (Runner{Executable: fakeBorg}).Run(t.Context(), req)
-	if result.Outcome != Failure || !errors.Is(err, want) {
+	if result.Outcome != Failure || !errors.Is(err, io.ErrShortWrite) {
 		t.Fatalf("result = %+v, error = %v", result, err)
 	}
 }

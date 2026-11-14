@@ -110,6 +110,17 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 		result.Outcome = Interrupted
 		return result, err
 	}
+	if outputErr := output.Err(); outputErr != nil {
+		// Cmd.Wait prefers an ExitError over its output-copy error. A writer
+		// failure can close the pipe and give the child SIGPIPE, so retain the
+		// original diagnostic error independently of the child's exit status.
+		result := processResult(cmd)
+		result.Outcome = Failure
+		if !errors.Is(err, outputErr) {
+			err = errors.Join(outputErr, err)
+		}
+		return result, fmt.Errorf("write Borg diagnostics: %w", err)
+	}
 	if err != nil {
 		var exit *exec.ExitError
 		var lifecycle *lifecycleError
@@ -177,12 +188,27 @@ func environment(overrides map[string]string) []string {
 type lockedWriter struct {
 	mu     sync.Mutex
 	writer io.Writer
+	err    error
 }
 
 func (w *lockedWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.writer.Write(p)
+	if w.err != nil {
+		return 0, w.err
+	}
+	n, err := w.writer.Write(p)
+	if err == nil && n != len(p) {
+		err = io.ErrShortWrite
+	}
+	w.err = err
+	return n, err
+}
+
+func (w *lockedWriter) Err() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.err
 }
 
 // Version output is small; cap capture without buffering arbitrary child output.
