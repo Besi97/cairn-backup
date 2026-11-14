@@ -26,6 +26,8 @@ func TestRun(t *testing.T) {
 		{name: "unknown command", args: []string{"missing"}, code: 3, wantErr: "unknown command"},
 		{name: "backup needs inputs", args: []string{"backup"}, code: 3, wantErr: "exactly one"},
 		{name: "backup help", args: []string{"backup", "--help"}, wantOut: "--repository"},
+		{name: "prune needs inputs", args: []string{"prune"}, code: 3, wantErr: "repository"},
+		{name: "prune help", args: []string{"prune", "--help"}, wantOut: "--keep-within"},
 		{name: "positional after separator", args: []string{"--", "source"}, code: 3, wantErr: "unknown command"},
 	}
 	for _, tt := range tests {

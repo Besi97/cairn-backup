@@ -4,8 +4,6 @@ package backup
 import (
 	"errors"
 	"path/filepath"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
@@ -57,12 +55,11 @@ func Prepare(options Options, invocationDir string, now time.Time) (Prepared, er
 	if err != nil {
 		return Prepared{}, err
 	}
-	repository, ssh, err := repositoryLocation(options.Repository, invocationDir)
+	repository, err := borg.PrepareRepository(borg.RepositoryOptions{
+		Repository: options.Repository, PassphraseFile: options.PassphraseFile, IdentityFile: options.IdentityFile,
+	}, invocationDir)
 	if err != nil {
 		return Prepared{}, err
-	}
-	if options.IdentityFile != "" && !ssh {
-		return Prepared{}, errors.New("identity file requires an SSH repository")
 	}
 	archive := options.ArchiveName
 	if options.ArchivePrefix != "" {
@@ -79,53 +76,17 @@ func Prepare(options Options, invocationDir string, now time.Time) (Prepared, er
 		// cannot be interpreted as another Borg option.
 		args = append(args, "--exclude="+exclude)
 	}
-	args = append(args, "--", repository+"::"+archive)
+	args = append(args, "--", repository.Location+"::"+archive)
 	args = append(args, options.Sources...)
 	dir := invocationDir
 	if options.SourceRoot != "" {
 		dir = resolvePath(invocationDir, options.SourceRoot)
 	}
 	return Prepared{Archive: archive, Request: borg.Request{
-		Args: args,
-		Dir:  dir,
-		Access: borg.AccessOptions{
-			SSH:            ssh,
-			PassphraseFile: resolveOptionalPath(invocationDir, options.PassphraseFile),
-			IdentityFile:   resolveOptionalPath(invocationDir, options.IdentityFile),
-		},
+		Args:   args,
+		Dir:    dir,
+		Access: repository.Access,
 	}}, nil
-}
-
-// Borg also accepts scp-style SSH locations. Classify these before resolving
-// local paths so every remote invocation receives the controlled SSH policy.
-var scpLocation = regexp.MustCompile(`^(?:[^@:/]+@)?(?:\[[0-9a-fA-F:.]+\]|[^:/]+):`)
-
-func repositoryLocation(location, invocationDir string) (string, bool, error) {
-	ssh := strings.HasPrefix(location, "ssh://")
-	path := location
-	if ssh {
-		authorityAndPath := strings.TrimPrefix(location, "ssh://")
-		_, path, _ = strings.Cut(authorityAndPath, "/")
-	} else if host := scpLocation.FindString(location); host != "" && !strings.HasPrefix(location, "file://") {
-		ssh = true
-		path = strings.TrimPrefix(location, host)
-	}
-	// Inspect the path, not IPv6 colons in the authority. The repository flag
-	// must not carry an archive or request BORG_REPO fallback.
-	if strings.Contains(path, "::") || strings.HasPrefix(path, ":") {
-		return "", false, errors.New("--repository must name a repository, not an archive")
-	}
-	if ssh {
-		return location, true, nil
-	}
-	if strings.HasPrefix(location, "file://") {
-		path := strings.TrimPrefix(location, "file://")
-		if path == "" {
-			return "", false, errors.New("--repository file URL must include a path")
-		}
-		return "file://" + resolvePath(invocationDir, path), false, nil
-	}
-	return resolvePath(invocationDir, location), false, nil
 }
 
 func resolvePath(dir, path string) string {
@@ -133,11 +94,4 @@ func resolvePath(dir, path string) string {
 		return path
 	}
 	return filepath.Join(dir, path)
-}
-
-func resolveOptionalPath(dir, path string) string {
-	if path == "" {
-		return ""
-	}
-	return resolvePath(dir, path)
 }

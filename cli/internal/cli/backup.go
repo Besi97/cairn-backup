@@ -49,34 +49,13 @@ func newBackupCommand() *cobra.Command {
 				return err
 			}
 			operation := "Backup"
+			previewResult := ""
 			if options.DryRun {
 				operation = "Backup preview"
+				previewResult = "no archive created"
 			}
-			if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "%s archive template: %s\n", operation, prepared.Archive); err != nil {
-				return &exitError{code: exitFailure, err: err}
-			}
-			prepared.Request.Diagnostics = cmd.ErrOrStderr()
-			result, runErr := (borg.Runner{}).Run(cmd.Context(), prepared.Request)
-			code, outcome := exitFailure, "failed"
-			switch result.Outcome {
-			case borg.Success:
-				code, outcome = exitSuccess, "completed"
-			case borg.Warning:
-				code, outcome = exitWarning, "completed with warnings"
-			case borg.Interrupted:
-				code, outcome = 128+result.Signal, "interrupted"
-			}
-			suffix := "."
-			if options.DryRun && (result.Outcome == borg.Success || result.Outcome == borg.Warning) {
-				suffix = "; no archive created."
-			}
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s%s\n", operation, outcome, suffix); err != nil {
-				return &exitError{code: exitFailure, err: err}
-			}
-			if code != exitSuccess {
-				return &exitError{code: code, err: runErr}
-			}
-			return nil
+			return runOperation(cmd, prepared.Request, operation,
+				fmt.Sprintf("%s archive template: %s", operation, prepared.Archive), previewResult)
 		},
 	}
 	flags := cmd.Flags()

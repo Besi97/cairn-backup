@@ -1,7 +1,7 @@
 # Cairn CLI
 
-The CLI provides standalone backups, help, and version output. Maintenance,
-configuration, and scheduling will be added separately. Install stable Borg 1.x
+The CLI provides standalone backups and pruning, help, and version output.
+Compaction, configuration, and scheduling will be added separately. Install stable Borg 1.x
 (at least 1.2.8) separately; SSH repositories also require OpenSSH.
 
 ## Backup
@@ -46,9 +46,65 @@ It does **not** establish repository access, working credentials, or that every
 file's contents can be read. It is not a guarantee that a subsequent backup will
 succeed or that no local filesystem state is touched.
 
+## Prune
+
+Prune an existing local or SSH repository without configuration, a scheduler, or
+a preceding backup. No confirmation prompt or `--yes` flag is involved.
+
+```sh
+cairn prune --repository /backups/repo --archive-prefix documents \
+  --keep-daily 7 --keep-weekly 4 --dry-run
+
+cairn prune --repository /backups/repo --archive-prefix documents \
+  --keep-daily 7 --keep-weekly 4
+
+cairn prune --repository ssh://user@backup-host/./repo \
+  --archive-prefix '{hostname}-documents' --keep-within 2d --keep-monthly 12 \
+  --passphrase-file ./passphrase --identity-file ~/.ssh/backup
+```
+
+Require an explicit nonempty `--repository`, nonempty `--archive-prefix`, and at
+least one effective retention rule. There is no repository environment fallback,
+implicit all-archives mode, exact-name deletion option, or positional argument.
+Relative local repositories and access files resolve from Cairn's invocation
+directory, as for backup.
+
+Cairn appends `-*` to the supplied prefix and passes that selector to Borg's
+`--glob-archives`. For example, `documents` selects both timestamped backups and
+`documents-before-upgrade`, but not `documents2-backup` or `documents` itself.
+**Placeholders and glob metacharacters are not escaped.** Deliberately broader
+patterns broaden deletion scope. Quote selectors to prevent shell expansion;
+the initial stderr status shows the unexpanded selector.
+
+Supported retention rules:
+
+- `--keep-within INTERVAL`: keep all archives within a positive integer interval
+  using Borg's units `H`, `d`, `w`, `m`, or `y`. A month is 31 days and a year
+  is 365 days; this is not Go duration syntax.
+- `--keep-secondly COUNT`, `--keep-minutely COUNT`, `--keep-hourly COUNT`,
+  `--keep-daily COUNT`, `--keep-weekly COUNT`, `--keep-monthly COUNT`, and
+  `--keep-yearly COUNT`: keep Borg's selected archives for those periods.
+  Zero disables a rule; negative counts mean unlimited periods for that rule,
+  not necessarily every archive in those periods. A policy of only zeros is
+  rejected.
+
+Borg owns retention ordering, rule interaction, and checkpoint handling. It uses
+**archive metadata timestamps**, not dates parsed from archive names. Calendar
+retention follows Borg's local timezone; UTC timestamps in Cairn-generated names
+do not change that. Newer quarterly rules and arbitrary Borg flags are not exposed.
+
+Both pruning and previews show native keep/prune lists on stderr. `--dry-run`
+does not delete archives, but unlike backup previews it requires repository
+access and working credentials. It may acquire locks and update local Borg state;
+it is not a guarantee that a subsequent prune will succeed or make the same
+choices after archives or time have changed.
+
+Prune never invokes compact. Deleting archives does not reclaim eligible
+repository disk space until a separate compaction operation.
+
 ## Output and exit codes
 
-Operation status, Borg progress/statistics, file previews, warnings, and errors go
+Operation status, Borg progress/statistics, file/archive lists, warnings, and errors go
 to stderr. The final human-readable outcome goes to stdout. Output wording is not
 a machine-readable API.
 
@@ -88,8 +144,9 @@ make build VERSION=0.1.0
 ```
 
 `cmd/cairn` contains the process entry point. `internal/cli` handles arguments
-and output; `internal/backup` prepares backup requests without Cobra or
-configuration. Help and version output do not require Borg or configuration.
+and output; `internal/backup` and `internal/prune` prepare operation requests
+without Cobra or configuration. Help and version output do not require Borg or
+configuration.
 
 `internal/borg` provides the shared process runner. It checks the selected
 executable's version before each operation, accepts stable Borg 1.x from 1.2.8,
@@ -103,7 +160,7 @@ failures, and interruption while retaining the process exit code.
 Borg's repository and cache locks remain authoritative across Cairn invocations,
 future scheduler operations, and external Borg processes. `LockWaitArgs` prepares
 an explicit native timeout: 60 seconds by default, with zero requesting no waiting.
-Backup exposes `--lock-wait SECONDS`. This is not an
+Backup and prune expose `--lock-wait SECONDS`. This is not an
 overall operation or SSH connection timeout. Cairn does not queue operations,
 retry failures, bypass locks, or delete lock files. A lock timeout is an execution
 failure; native Borg diagnostics are streamed to the caller.
@@ -135,7 +192,8 @@ mistaking a cleanup signal for the user's request.
 This covers ordinary Borg, SSH, and passcommand descendants in the owned local
 group, not programs that deliberately detach or remote server processes. Cairn
 cannot guarantee graceful cleanup after its own SIGKILL or a host crash.
-Interrupted backups may leave checkpoint archives.
+Interrupted backups may leave checkpoint archives. Interrupted pruning may have
+already committed some deletions; cancellation is not a rollback guarantee.
 
 ## Repository access
 
@@ -171,7 +229,7 @@ repository-trust approvals; explicit inherited Borg trust settings remain in eff
 
 ## Integration tests
 
-CI exercises standalone backups, access, contention, cancellation, and subsequent lock acquisition
+CI exercises standalone backups and pruning, access, contention, cancellation, and subsequent lock acquisition
 against Borg 1.2.8 and 1.4.5 using disposable repositories and a fake SSH transport
 (not a live SSH server). To run these checks locally, install
 a supported Borg binary named `borg` and run:
