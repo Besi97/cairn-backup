@@ -35,6 +35,8 @@ func newConfigCommand() *cobra.Command {
 		},
 	}
 	check.Flags().StringVar(&path, "config", "", "Configuration file (otherwise discover user then system configuration)")
+	registerFileCompletion(check, "config")
+	check.ValidArgsFunction = cobra.NoFileCompletions
 	cmd.AddCommand(check)
 	return cmd
 }

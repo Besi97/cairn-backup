@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
@@ -15,25 +16,16 @@ func newWorkflowCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "workflow", Short: "List and run configured workflows"}
 	var listPath string
 	list := &cobra.Command{
-		Use:   "list",
-		Short: "List configured workflow names",
-		Args:  cobra.NoArgs,
+		Use:               "list",
+		Short:             "List configured workflow names",
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			options, err := config.Environment()
+			selected, err := loadWorkflowConfig(cmd, listPath)
 			if err != nil {
 				return err
 			}
-			options.Path, options.Explicit = listPath, cmd.Flags().Changed("config")
-			selected, err := config.Load(options)
-			if err != nil {
-				return err
-			}
-			names := make([]string, 0, len(selected.Workflows))
-			for name := range selected.Workflows {
-				names = append(names, name)
-			}
-			sort.Strings(names)
-			for _, name := range names {
+			for _, name := range workflowNames(selected, "") {
 				if _, err := fmt.Fprintln(cmd.OutOrStdout(), name); err != nil {
 					return &exitError{code: exitFailure, err: err}
 				}
@@ -42,6 +34,7 @@ func newWorkflowCommand() *cobra.Command {
 		},
 	}
 	list.Flags().StringVar(&listPath, "config", "", "Configuration file (otherwise discover user then system configuration)")
+	registerFileCompletion(list, "config")
 	var runPath string
 	run := &cobra.Command{
 		Use:   "run NAME",
@@ -51,13 +44,24 @@ func newWorkflowCommand() *cobra.Command {
 			"Standalone operation flags do not override configured tasks.\n" +
 			"Cross-process workflow overlap protection is not implemented yet.",
 		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			options, err := config.Environment()
-			if err != nil {
-				return err
+		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
+			if len(args) != 0 {
+				return nil, cobra.ShellCompDirectiveNoFileComp
 			}
-			options.Path, options.Explicit = runPath, cmd.Flags().Changed("config")
-			selected, err := config.Load(options)
+			selected, err := loadWorkflowConfig(cmd, runPath)
+			if err != nil {
+				// Completion is advisory; config check provides diagnostics.
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			names := workflowNames(selected, toComplete)
+			completions := make([]cobra.Completion, 0, len(names))
+			for _, name := range names {
+				completions = append(completions, name)
+			}
+			return completions, cobra.ShellCompDirectiveNoFileComp
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			selected, err := loadWorkflowConfig(cmd, runPath)
 			if err != nil {
 				return err
 			}
@@ -91,6 +95,27 @@ func newWorkflowCommand() *cobra.Command {
 		},
 	}
 	run.Flags().StringVar(&runPath, "config", "", "Configuration file (otherwise discover user then system configuration)")
+	registerFileCompletion(run, "config")
 	cmd.AddCommand(list, run)
 	return cmd
+}
+
+func loadWorkflowConfig(cmd *cobra.Command, path string) (*config.Config, error) {
+	options, err := config.Environment()
+	if err != nil {
+		return nil, err
+	}
+	options.Path, options.Explicit = path, cmd.Flags().Changed("config")
+	return config.Load(options)
+}
+
+func workflowNames(selected *config.Config, prefix string) []string {
+	names := make([]string, 0, len(selected.Workflows))
+	for name := range selected.Workflows {
+		if strings.HasPrefix(name, prefix) {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
 }

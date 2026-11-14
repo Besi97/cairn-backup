@@ -22,6 +22,7 @@ func newBackupCommand() *cobra.Command {
 			"Use -- before source paths beginning with a hyphen.\n\n" +
 			"A dry-run lists files without creating an archive. It does not verify repository access,\n" +
 			"credentials, or that all file contents can be read.",
+		ValidArgsFunction: completeBackupSources,
 		RunE: func(cmd *cobra.Command, sources []string) error {
 			if cmd.Flags().Changed("archive-prefix") == cmd.Flags().Changed("archive-name") {
 				return fmt.Errorf("provide exactly one --archive-prefix or --archive-name")
@@ -68,5 +69,10 @@ func newBackupCommand() *cobra.Command {
 	flags.StringVar(&options.IdentityFile, "identity-file", "", "SSH identity file, relative to the invocation directory")
 	flags.StringVar(&lockWait, "lock-wait", strconv.Itoa(borg.DefaultLockWait), "Borg lock-acquisition timeout in `SECONDS`; zero does not wait")
 	flags.BoolVar(&options.DryRun, "dry-run", false, "List files without creating an archive; does not verify repository access")
+	registerRepositoryCompletion(cmd)
+	registerFileCompletion(cmd, "passphrase-file")
+	registerFileCompletion(cmd, "identity-file")
+	registerDirectoryCompletion(cmd, "source-root")
+	registerNoFileCompletion(cmd, "archive-prefix", "archive-name", "exclude", "lock-wait")
 	return cmd
 }
