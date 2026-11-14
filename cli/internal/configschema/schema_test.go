@@ -165,13 +165,6 @@ func TestDocumentStructure(t *testing.T) {
 			d["repositories"], d["workflows"] = map[string]any{}, map[string]any{}
 		}},
 		{"scheduled workflow", true, func(d map[string]any) { workflow(d)["cron"] = "0 2 * * *" }},
-		{"inline secret", true, func(d map[string]any) { repository(d)["passphrase"] = "${LITERAL}~" }},
-		{"empty explicit secret", true, func(d map[string]any) { repository(d)["passphrase"] = "" }},
-		{"file secret", true, func(d map[string]any) { repository(d)["passphrase_file"] = "./secret" }},
-		{"SSH identity", true, func(d map[string]any) {
-			repository(d)["location"] = "backup@host:repo"
-			repository(d)["identity_file"] = "~/.ssh/cairn"
-		}},
 		{"parallel tasks", true, func(d map[string]any) {
 			stage(d)["tasks"] = []any{
 				yamlValue(t, "{type: compact, repository: local}"),
@@ -199,19 +192,6 @@ func TestDocumentStructure(t *testing.T) {
 		{"empty workflow name", false, func(d map[string]any) {
 			d["workflows"].(map[string]any)[""] = workflow(d)
 		}},
-		{"missing location", false, func(d map[string]any) { delete(repository(d), "location") }},
-		{"empty location", false, func(d map[string]any) { repository(d)["location"] = "" }},
-		{"null location", false, func(d map[string]any) { repository(d)["location"] = nil }},
-		{"unknown repository field", false, func(d map[string]any) { repository(d)["extra"] = true }},
-		{"both credential forms", false, func(d map[string]any) {
-			repository(d)["passphrase"], repository(d)["passphrase_file"] = "", "./secret"
-		}},
-		{"null secret", false, func(d map[string]any) { repository(d)["passphrase"] = nil }},
-		{"numeric secret", false, func(d map[string]any) { repository(d)["passphrase"] = 123 }},
-		{"empty secret file", false, func(d map[string]any) { repository(d)["passphrase_file"] = "" }},
-		{"null secret file", false, func(d map[string]any) { repository(d)["passphrase_file"] = nil }},
-		{"empty identity file", false, func(d map[string]any) { repository(d)["identity_file"] = "" }},
-		{"null identity file", false, func(d map[string]any) { repository(d)["identity_file"] = nil }},
 		{"unknown workflow field", false, func(d map[string]any) { workflow(d)["extra"] = true }},
 		{"empty cron", false, func(d map[string]any) { workflow(d)["cron"] = "" }},
 		{"numeric cron", false, func(d map[string]any) { workflow(d)["cron"] = 123 }},

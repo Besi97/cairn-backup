@@ -73,6 +73,13 @@ func baseDocument(t *testing.T) map[string]any {
 	return taskDocument(t, "{type: compact, repository: local}")
 }
 
+func repositoryDocument(t *testing.T, definition string) map[string]any {
+	t.Helper()
+	doc := baseDocument(t)
+	doc["repositories"].(map[string]any)["local"] = yamlValue(t, definition)
+	return doc
+}
+
 func repository(doc map[string]any) map[string]any {
 	return doc["repositories"].(map[string]any)["local"].(map[string]any)
 }
