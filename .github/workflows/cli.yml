@@ -61,4 +61,4 @@ jobs:
       - name: Test with real Borg
         env:
           CAIRN_TEST_BORG: ${{ runner.temp }}/borg
-        run: go test -race -count=1 -v ./...
+        run: make integration-test
