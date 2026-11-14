@@ -61,16 +61,19 @@ func completeBackupSources(cmd *cobra.Command, _ []string, toComplete string) ([
 	}
 
 	completions := make([]cobra.Completion, 0, len(entries))
+	directive := cobra.ShellCompDirectiveNoFileComp
 	for _, entry := range entries {
 		name := entry.Name()
 		if !strings.HasPrefix(name, prefix) || (strings.HasPrefix(name, ".") && !strings.HasPrefix(prefix, ".")) {
 			continue
 		}
-		name = filepath.Join(dir, name)
-		if entry.IsDir() {
+		name = dir + name
+		info, err := os.Stat(filepath.Join(sourceRoot, dir, entry.Name()))
+		if err == nil && info.IsDir() {
 			name += string(filepath.Separator)
+			directive |= cobra.ShellCompDirectiveNoSpace
 		}
 		completions = append(completions, cobra.Completion(name))
 	}
-	return completions, cobra.ShellCompDirectiveNoFileComp
+	return completions, directive
 }

@@ -102,6 +102,24 @@ func TestBackupSourceCompletionUsesSourceRoot(t *testing.T) {
 		t.Fatalf("nested source-root completion: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 
+	code, stdout, stderr = runCompletion(t, "backup", "--source-root", root, "./file-")
+	if code != 0 || stdout != "./file-one\n./file-two\n:4\n" {
+		t.Fatalf("preserved path prefix: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+
+	code, stdout, stderr = runCompletion(t, "backup", "--source-root", root, "sub")
+	if code != 0 || stdout != "subdir/\n:6\n" {
+		t.Fatalf("directory completion directive: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+
+	if err := os.Symlink("subdir", filepath.Join(root, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr = runCompletion(t, "backup", "--source-root", root, "linked")
+	if code != 0 || stdout != "linked/\n:6\n" {
+		t.Fatalf("symlinked directory completion: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+
 	code, stdout, stderr = runCompletion(t, "backup", "--source-root", root, ".")
 	if code != 0 || stdout != ".hidden\n:4\n" {
 		t.Fatalf("dotfile source-root completion: code=%d stdout=%q stderr=%q", code, stdout, stderr)
