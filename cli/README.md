@@ -1,16 +1,31 @@
 # Cairn CLI
 
 The CLI provides standalone backups, pruning, and compaction, help, and version
-output. Configuration and scheduling will be added separately. Install stable Borg 1.x
+output, plus optional configuration checking. Workflow execution and scheduling
+will be added separately. Install stable Borg 1.x
 (at least 1.2.8) separately; SSH repositories also require OpenSSH.
 
-## Configuration design
+## Configuration
 
 The [configuration contract](../docs/configuration.md),
 [version 1 YAML validation schema](schema/config-v1.schema.json), and
 [example configuration](examples/config.yaml) define the agreed repository and
-workflow format. Loading, workflow execution, and scheduling are not implemented
-yet; the example is for schema validation and design review, not CLI execution.
+workflow format.
+
+```sh
+cairn config check
+cairn config check --config ./config.yaml
+```
+
+Checking discovers and validates one file without executing Borg, contacting a
+repository, opening credential files, or checking source paths. It exits with
+`0` on success or `3` for invalid/missing configuration. Without `--config`, Cairn
+tries the user's XDG configuration location, then `/etc/cairn/config.yaml`.
+Selected invalid/unreadable files are errors; files are never merged.
+
+Workflow execution and scheduling are not implemented yet. Cron is checked only
+as a nonempty string until scheduling syntax is defined. Standalone operations,
+help, and version never load configuration.
 
 ## Backup
 

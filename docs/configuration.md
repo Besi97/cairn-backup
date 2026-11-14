@@ -1,14 +1,36 @@
 # Configuration contract
 
-This is the agreed version 1 configuration contract for
-[#52](https://github.com/Besi97/cairn-backup/issues/52), not a claim of implemented
-runtime support. Configuration loading follows in #53, workflow execution in
-#54, and scheduling in #55. Standalone `backup`, `prune`, and `compact` remain
+This is the version 1 configuration contract agreed in
+[#52](https://github.com/Besi97/cairn-backup/issues/52). Configuration loading and
+checking are implemented; workflow execution follows in #54 and scheduling in
+#55. Standalone `backup`, `prune`, and `compact` remain
 usable without configuration or a scheduler and do not discover config files.
 
 - [Example YAML](../cli/examples/config.yaml)
 - [Version 1 JSON Schema for YAML](../cli/schema/config-v1.schema.json)
 - [Decision and rationale](decisions/0003-configuration-and-workflows.md)
+
+## Check a configuration
+
+```sh
+cairn config check
+cairn config check --config ./config.yaml
+```
+
+Checking validates the entire selected file, not just a selected workflow. Success
+prints the selected absolute path and exits with `0`; missing, unreadable, or
+invalid configuration exits with `3`. An explicitly empty `--config` is an error.
+The flag belongs to `config check`, not standalone operations.
+
+No Borg installation or network access is needed. Checking does not open
+passphrase/identity files or require repository/source paths to exist. It cannot
+verify credentials or repository health. Inline passphrases necessarily enter
+memory when the configuration itself is read, but never appear in diagnostics.
+Errors identify field paths (JSON Pointer notation) and source positions where
+available, without quoting rejected values or YAML snippets.
+
+Cron is currently validated only as a nonempty string; syntax and scheduling
+semantics remain deferred to #55.
 
 ## Editor validation
 
@@ -18,8 +40,7 @@ The example associates its schema using a relative path:
 # yaml-language-server: $schema=../schema/config-v1.schema.json
 ```
 
-When copying the example elsewhere, adjust the path or use the published URL
-after this schema is merged:
+When copying the example elsewhere, adjust the path or use the published URL:
 
 ```yaml
 # yaml-language-server: $schema=https://raw.githubusercontent.com/Besi97/cairn-backup/main/cli/schema/config-v1.schema.json
@@ -179,6 +200,9 @@ have a different home/config location than an interactive shell; explicit
 
 Use the selected configuration's containing directory as the base for relative
 local repository locations, passphrase files, SSH identities, and source roots.
+If the selected file is a symlink, use the selected path's directory rather than
+the target's directory. This path base is separate from canonical overlap-lock
+identity.
 For these local path fields, expand a value equal to `~` or starting with `~/`
 using the executing user's home directory before resolving relative paths.
 Apply the same local-path handling to the path portion of Borg `file://`
@@ -202,12 +226,19 @@ credential exclusivity, required operation inputs, effective retention, and
 nonempty lists/strings where specified. `default` entries describe runtime
 defaults; schema validators do not insert values.
 
-Go loading/validation in #53 must also reject unknown repository references,
+The loader also rejects unknown repository references,
 duplicate YAML mapping keys, non-string mapping keys, multiple YAML documents,
-and non-JSON YAML values. It must validate repository/archive syntax, SSH-only
-identity settings, cron expressions once defined in #55, and numeric values
-against supported runtime ranges. Standard JSON Schema cannot derive valid
-repository names from this document's dynamic map or check filesystem access.
+and non-JSON YAML values (including timestamps, custom tags, and nonfinite
+numbers). YAML merge keys are not supported. Ordinary aliases are supported with
+bounded nesting/expansion (100 levels and 100,000 visited nodes).
+
+Validation checks repository-only locations, statically invalid archive names,
+SSH-only identity settings, and integer ranges supported on both Linux targets
+(signed 64-bit). Borg retains expanded-name validation, placeholder expansion,
+and collision handling. Cron expressions will be checked once defined in #55.
+The published schema is embedded in the binary, so structural validation is
+offline and uses the same contract as editors. Standard JSON Schema cannot derive
+valid repository names from this document's dynamic map or check filesystem access.
 It cannot provide dynamic repository-name completion either.
 
 Configuration checking must not execute Borg or read secret files unnecessarily.
