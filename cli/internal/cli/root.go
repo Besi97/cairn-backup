@@ -79,6 +79,6 @@ func newRootCommand(version string) *cobra.Command {
 	}
 	cmd.CompletionOptions.DisableDefaultCmd = true
 	cmd.SetVersionTemplate("cairn {{.Version}}\n")
-	cmd.AddCommand(newBackupCommand(), newPruneCommand(), newCompactCommand())
+	cmd.AddCommand(newBackupCommand(), newPruneCommand(), newCompactCommand(), newConfigCommand())
 	return cmd
 }

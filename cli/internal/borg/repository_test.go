@@ -9,7 +9,8 @@ import (
 func TestPrepareRepository(t *testing.T) {
 	dir := t.TempDir()
 	for _, location := range []string{"repo", "./repo:colon", "/repo", "file://./repo", "file:///repo",
-		"ssh://user@host:2222/./repo", "ssh://user@[::1]:2222/~/repo", "user@host:repo", "[::1]:repo", "user@[::1]:repo"} {
+		"ssh://user@host:2222/./repo", "ssh://user@[::1]:2222/~/repo", "user@host:repo", "[::1]:repo", "user@[::1]:repo",
+		"ssh://{user}@host/{now:%Y}/repo", "ssh://host:{pid}/repo"} {
 		t.Run(location, func(t *testing.T) {
 			ssh := strings.HasPrefix(location, "ssh://") || strings.HasPrefix(location, "user@") || strings.HasPrefix(location, "[")
 			options := RepositoryOptions{Repository: location, PassphraseFile: "passphrase"}
@@ -47,7 +48,8 @@ func TestPrepareRepository(t *testing.T) {
 
 func TestInvalidRepositoryInputs(t *testing.T) {
 	for _, location := range []string{"", "::", "repo::archive", "host:repo::archive", "ssh://host/repo::archive",
-		"user@[::1]:repo::archive", "file://"} {
+		"user@[::1]:repo::archive", "file://", "ssh://", "ssh:///repo", "ssh://host", "ssh://host/",
+		"ssh://host:bad/repo", "ssh://[invalid]/repo", "user@host:", "https://host/repo", "host:ssh://other/repo"} {
 		if _, err := PrepareRepository(RepositoryOptions{Repository: location}, t.TempDir()); err == nil {
 			t.Errorf("accepted invalid repository: %q", location)
 		}

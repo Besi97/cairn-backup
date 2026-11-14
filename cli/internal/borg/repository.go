@@ -47,16 +47,33 @@ func PrepareRepository(options RepositoryOptions, invocationDir string) (Prepare
 // Borg also accepts scp-style SSH locations. Classify these before resolving
 // local paths so every remote invocation receives the controlled SSH policy.
 var scpLocation = regexp.MustCompile(`^(?:[^@:/]+@)?(?:\[[0-9a-fA-F:.]+\]|[^:/]+):`)
+var sshAuthority = regexp.MustCompile(`^(?:[^@:/]+@)?(?:\[[0-9a-fA-F:.]+\]|[^\[\]:/]+)(?::[0-9]+)?$`)
 
 func repositoryLocation(location, invocationDir string) (string, bool, error) {
 	ssh := strings.HasPrefix(location, "ssh://")
 	path := location
 	if ssh {
 		authorityAndPath := strings.TrimPrefix(location, "ssh://")
-		_, path, _ = strings.Cut(authorityAndPath, "/")
+		authority, remotePath, found := strings.Cut(authorityAndPath, "/")
+		if !found || authority == "" || remotePath == "" {
+			return "", false, errors.New("--repository SSH URL must include a host and path")
+		}
+		// Borg expands placeholders itself, including in the authority. Only
+		// validate literal authorities here; do not parse/escape the URL with
+		// net/url, which would reject native format strings such as %Y.
+		if !strings.Contains(authority, "{") && !sshAuthority.MatchString(authority) {
+			return "", false, errors.New("--repository SSH URL has an invalid host or port")
+		}
+		path = remotePath
 	} else if host := scpLocation.FindString(location); host != "" && !strings.HasPrefix(location, "file://") {
 		ssh = true
 		path = strings.TrimPrefix(location, host)
+		if path == "" {
+			return "", false, errors.New("--repository SSH location must include a path")
+		}
+		if strings.HasPrefix(path, "//") || strings.HasPrefix(path, "ssh://") {
+			return "", false, errors.New("--repository has an invalid scp-style path")
+		}
 	}
 	// Inspect the path, not IPv6 colons in the authority. The repository flag
 	// must not carry an archive or request BORG_REPO fallback.

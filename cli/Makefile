@@ -8,10 +8,10 @@ build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-X main.version=$(VERSION)" -o bin/cairn ./cmd/cairn
 
 fmt:
-	gofmt -w cmd internal
+	gofmt -w cmd internal schema
 
 fmt-check:
-	@test -z "$$(gofmt -l cmd internal)" || { gofmt -l cmd internal; exit 1; }
+	@test -z "$$(gofmt -l cmd internal schema)" || { gofmt -l cmd internal schema; exit 1; }
 
 vet:
 	$(GO) vet ./...

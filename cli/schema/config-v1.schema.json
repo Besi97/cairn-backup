@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/Besi97/cairn-backup/main/cli/schema/config-v1.schema.json",
   "title": "Cairn configuration, version 1",
-  "description": "Named repositories and workflows. Runtime loading and execution are delivered separately; see docs/configuration.md.",
+  "description": "Named repositories and workflows. Validate with cairn config check; workflow execution is delivered separately. See docs/configuration.md.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "repositories", "workflows"],

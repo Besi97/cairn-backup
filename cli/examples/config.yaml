@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=../schema/config-v1.schema.json
-# Schema example, not yet executable: configuration loading and workflow
-# execution follow in issues #53 and #54. Replace all example paths and secrets.
+# Validate with: cairn config check --config cli/examples/config.yaml
+# Workflow execution follows in #54. Replace all example paths and secrets.
 version: 1
 
 repositories:
