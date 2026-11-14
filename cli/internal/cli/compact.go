@@ -53,5 +53,9 @@ func newCompactCommand() *cobra.Command {
 	flags.StringVar(&options.PassphraseFile, "passphrase-file", "", "Optional invocation-relative passphrase file; not needed for compaction")
 	flags.StringVar(&options.IdentityFile, "identity-file", "", "SSH identity file, relative to the invocation directory")
 	flags.StringVar(&lockWait, "lock-wait", strconv.Itoa(borg.DefaultLockWait), "Borg lock-acquisition timeout in `SECONDS`; zero does not wait")
+	registerRepositoryCompletion(cmd)
+	registerFileCompletion(cmd, "passphrase-file")
+	registerFileCompletion(cmd, "identity-file")
+	registerNoFileCompletion(cmd, "lock-wait")
 	return cmd
 }

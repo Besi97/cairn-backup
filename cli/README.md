@@ -27,6 +27,41 @@ Scheduling is not implemented yet. Cron is checked only
 as a nonempty string until scheduling syntax is defined. Standalone operations,
 help, and version never load configuration.
 
+## Shell completion
+
+Cairn can generate completion scripts for Bash, Zsh, Fish, and PowerShell:
+
+```sh
+cairn completion bash
+cairn completion zsh
+cairn completion fish
+cairn completion powershell
+```
+
+Each command prints setup instructions for loading the script in the current
+shell or installing it for future sessions. Bash completion requires the
+`bash-completion` package. For PowerShell, add
+`cairn completion powershell | Out-String | Invoke-Expression` to your PowerShell
+profile. Completion is available wherever the Cairn binary runs.
+
+Completions include commands, flags, local paths for path-valued options and
+backup sources, and directories for `--source-root`. SSH-style repository values
+do not trigger local path suggestions. Archive names and patterns are treated as
+literal Borg inputs rather than filesystem paths.
+
+For `cairn workflow run`, Cairn reads and validates the selected configuration
+to suggest matching workflow names. It uses `--config` when supplied, otherwise
+the normal user/system discovery order. Put `--config` before the workflow name
+when completing from a specific file:
+
+```sh
+cairn workflow run --config ./config.yaml <TAB>
+```
+
+Workflow completion does not execute Borg or access repositories, credential
+files, or source paths. Missing or invalid configuration produces no workflow
+suggestions; use `cairn config check` to see configuration diagnostics.
+
 ## Backup
 
 Back up to an existing local or SSH repository without configuration or a running

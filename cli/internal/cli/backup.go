@@ -68,5 +68,10 @@ func newBackupCommand() *cobra.Command {
 	flags.StringVar(&options.IdentityFile, "identity-file", "", "SSH identity file, relative to the invocation directory")
 	flags.StringVar(&lockWait, "lock-wait", strconv.Itoa(borg.DefaultLockWait), "Borg lock-acquisition timeout in `SECONDS`; zero does not wait")
 	flags.BoolVar(&options.DryRun, "dry-run", false, "List files without creating an archive; does not verify repository access")
+	registerRepositoryCompletion(cmd)
+	registerFileCompletion(cmd, "passphrase-file")
+	registerFileCompletion(cmd, "identity-file")
+	registerDirectoryCompletion(cmd, "source-root")
+	registerNoFileCompletion(cmd, "archive-prefix", "archive-name", "exclude", "lock-wait")
 	return cmd
 }
