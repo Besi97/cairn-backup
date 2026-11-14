@@ -4,6 +4,14 @@ The CLI provides standalone backups, pruning, and compaction, help, and version
 output. Configuration and scheduling will be added separately. Install stable Borg 1.x
 (at least 1.2.8) separately; SSH repositories also require OpenSSH.
 
+## Configuration design
+
+The [configuration contract](../docs/configuration.md),
+[version 1 YAML validation schema](schema/config-v1.schema.json), and
+[example configuration](examples/config.yaml) define the agreed repository and
+workflow format. Loading, workflow execution, and scheduling are not implemented
+yet; the example is for schema validation and design review, not CLI execution.
+
 ## Backup
 
 Back up to an existing local or SSH repository without configuration or a running

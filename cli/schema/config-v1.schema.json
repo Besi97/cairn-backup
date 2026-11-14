@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Besi97/cairn-backup/main/cli/schema/config-v1.schema.json",
+  "title": "Cairn configuration, version 1",
+  "description": "Named repositories and workflows. Runtime loading and execution are delivered separately; see docs/configuration.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "repositories", "workflows"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Required configuration schema version; never inferred."
+    },
+    "repositories": {
+      "type": "object",
+      "description": "Named existing Borg repositories. An empty map is allowed.",
+      "propertyNames": { "minLength": 1 },
+      "additionalProperties": { "$ref": "#/$defs/repository" }
+    },
+    "workflows": {
+      "type": "object",
+      "description": "Named procedures, optionally scheduled. An empty map is allowed.",
+      "propertyNames": { "minLength": 1 },
+      "additionalProperties": { "$ref": "#/$defs/workflow" }
+    }
+  },
+  "$defs": {
+    "nonemptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "lockWait": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 60,
+      "description": "Borg lock-acquisition timeout in seconds, not a task timeout. Zero does not wait."
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["location"],
+      "properties": {
+        "location": {
+          "$ref": "#/$defs/nonemptyString",
+          "description": "Existing local repository or native Borg SSH location, never an archive. Local relative paths use the config directory; ~ and ~/ expand locally."
+        },
+        "passphrase": {
+          "type": "string",
+          "description": "Literal secret, including an explicitly empty passphrase. Mutually exclusive with passphrase_file. Never expand or log this value."
+        },
+        "passphrase_file": {
+          "$ref": "#/$defs/nonemptyString",
+          "description": "Passphrase file, relative to the config directory; ~ and ~/ expand. Mutually exclusive with passphrase."
+        },
+        "identity_file": {
+          "$ref": "#/$defs/nonemptyString",
+          "description": "SSH identity file, relative to the config directory; ~ and ~/ expand. Only valid for SSH repositories."
+        }
+      },
+      "not": { "required": ["passphrase", "passphrase_file"] }
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stages"],
+      "properties": {
+        "cron": {
+          "$ref": "#/$defs/nonemptyString",
+          "description": "Optional cron schedule. Omit for manual-only execution. Cron dialect and timezone semantics are settled in issue #55."
+        },
+        "stages": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Run in order; advance only if all tasks in the previous stage succeeded without warnings.",
+          "items": { "$ref": "#/$defs/stage" }
+        }
+      }
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tasks"],
+      "properties": {
+        "tasks": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Run concurrently. Let siblings finish after a warning or failure, then stop the workflow.",
+          "items": { "$ref": "#/$defs/task" }
+        }
+      }
+    },
+    "task": {
+      "oneOf": [
+        { "$ref": "#/$defs/backupTask" },
+        { "$ref": "#/$defs/pruneTask" },
+        { "$ref": "#/$defs/compactTask" }
+      ]
+    },
+    "backupTask": {
+      "title": "Backup task",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "repository", "sources"],
+      "properties": {
+        "type": { "const": "backup" },
+        "repository": {
+          "$ref": "#/$defs/nonemptyString",
+          "description": "Name of a repository defined in repositories, not its location."
+        },
+        "archive_prefix": {
+          "$ref": "#/$defs/nonemptyString",
+          "description": "Append Cairn's UTC timestamp. Borg placeholders remain unchanged. Mutually exclusive with archive_name."
+        },
+        "archive_name": {
+          "$ref": "#/$defs/nonemptyString",
+          "description": "Exact archive name, with native Borg placeholders; no timestamp is added. Mutually exclusive with archive_prefix."
+        },
+        "source_root": {
+          "$ref": "#/$defs/nonemptyString",
+          "description": "Borg working directory. Defaults to the config directory. Relative paths use that directory; ~ and ~/ expand."
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/nonemptyString" },
+          "description": "Native Borg source arguments, unchanged. Relative paths use source_root, not Cairn's invocation directory."
+        },
+        "exclude": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Native Borg exclusion patterns, unchanged."
+        },
+        "lock_wait": { "$ref": "#/$defs/lockWait" }
+      },
+      "oneOf": [
+        { "required": ["archive_prefix"] },
+        { "required": ["archive_name"] }
+      ]
+    },
+    "pruneTask": {
+      "title": "Prune task",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "repository", "archive_prefix"],
+      "properties": {
+        "type": { "const": "prune" },
+        "repository": {
+          "$ref": "#/$defs/nonemptyString",
+          "description": "Name of a repository defined in repositories, not its location."
+        },
+        "archive_prefix": {
+          "$ref": "#/$defs/nonemptyString",
+          "description": "Select PREFIX-* using native Borg placeholders and glob semantics. Matching exact-name archives are also in scope."
+        },
+        "keep_within": {
+          "type": "string",
+          "pattern": "^\\+?0*[1-9][0-9]*[Hdwmy]$",
+          "not": { "pattern": "[\\r\\n]" },
+          "description": "Positive integer followed by H, d, w, m, or y, using Borg interval semantics."
+        },
+        "keep_secondly": {
+          "type": "integer",
+          "description": "Borg retention count: zero disables, negative means unlimited periods."
+        },
+        "keep_minutely": {
+          "type": "integer",
+          "description": "Borg retention count: zero disables, negative means unlimited periods."
+        },
+        "keep_hourly": {
+          "type": "integer",
+          "description": "Borg retention count: zero disables, negative means unlimited periods."
+        },
+        "keep_daily": {
+          "type": "integer",
+          "description": "Borg retention count: zero disables, negative means unlimited periods."
+        },
+        "keep_weekly": {
+          "type": "integer",
+          "description": "Borg retention count: zero disables, negative means unlimited periods."
+        },
+        "keep_monthly": {
+          "type": "integer",
+          "description": "Borg retention count: zero disables, negative means unlimited periods."
+        },
+        "keep_yearly": {
+          "type": "integer",
+          "description": "Borg retention count: zero disables, negative means unlimited periods."
+        },
+        "lock_wait": { "$ref": "#/$defs/lockWait" }
+      },
+      "anyOf": [
+        { "required": ["keep_within"] },
+        { "required": ["keep_secondly"], "properties": { "keep_secondly": { "not": { "const": 0 } } } },
+        { "required": ["keep_minutely"], "properties": { "keep_minutely": { "not": { "const": 0 } } } },
+        { "required": ["keep_hourly"], "properties": { "keep_hourly": { "not": { "const": 0 } } } },
+        { "required": ["keep_daily"], "properties": { "keep_daily": { "not": { "const": 0 } } } },
+        { "required": ["keep_weekly"], "properties": { "keep_weekly": { "not": { "const": 0 } } } },
+        { "required": ["keep_monthly"], "properties": { "keep_monthly": { "not": { "const": 0 } } } },
+        { "required": ["keep_yearly"], "properties": { "keep_yearly": { "not": { "const": 0 } } } }
+      ]
+    },
+    "compactTask": {
+      "title": "Compact task",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "repository"],
+      "properties": {
+        "type": { "const": "compact" },
+        "repository": {
+          "$ref": "#/$defs/nonemptyString",
+          "description": "Name of a repository defined in repositories. Compaction is repository-wide and needs no encryption key or passphrase."
+        },
+        "lock_wait": { "$ref": "#/$defs/lockWait" }
+      }
+    }
+  }
+}
