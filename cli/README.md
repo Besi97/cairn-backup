@@ -176,6 +176,9 @@ make cross-build
 and runs a pinned version of `govulncheck` against the current vulnerability
 database. Go downloads dependencies and the scanner as needed; no global tool
 installation is required. Race tests require a C compiler.
+`make test` and `make check` explicitly disable real-Borg tests, even if
+`CAIRN_TEST_BORG` is inherited from the environment. Process-runner tests still
+execute a compiled fake Borg binary to test subprocess behavior.
 
 Builds default to version `dev`. Set `VERSION` for a versioned binary:
 
@@ -277,5 +280,9 @@ disposable repositories and a fake SSH transport
 a supported Borg binary named `borg` and run:
 
 ```sh
-CAIRN_TEST_BORG="$(command -v borg)" go test -race -count=1 -v ./...
+make integration-test CAIRN_TEST_BORG="$(command -v borg)"
 ```
+
+The integration target enables real-Borg tests and runs the entire Go test suite
+without package or test-name filters. Plain `go test ./...` also opts into those
+tests when `CAIRN_TEST_BORG` is set; without it, they skip.

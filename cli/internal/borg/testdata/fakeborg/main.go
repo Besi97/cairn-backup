@@ -85,6 +85,16 @@ func main() {
 	}
 	fmt.Fprint(os.Stdout, "stdout diagnostic\n")
 	fmt.Fprint(os.Stderr, "stderr diagnostic\n")
+	if os.Getenv("FAKE_OUTPUT_FLOOD") == "yes" {
+		// Keep writing until a failed parent output copy closes the pipe.
+		// Go terminates writes to closed stdout with SIGPIPE.
+		block := make([]byte, 64*1024)
+		for {
+			if _, err := os.Stdout.Write(block); err != nil {
+				os.Exit(2)
+			}
+		}
+	}
 	if release := os.Getenv("FAKE_RELEASE"); release != "" {
 		deadline := time.After(10 * time.Second)
 		for {
