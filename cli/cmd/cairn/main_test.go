@@ -24,6 +24,7 @@ func TestBinary(t *testing.T) {
 		{name: "help without dependencies", args: []string{"--help"}, out: "Usage:"},
 		{name: "backup help without dependencies", args: []string{"backup", "--help"}, out: "--repository"},
 		{name: "prune help without dependencies", args: []string{"prune", "--help"}, out: "--keep-within"},
+		{name: "compact help without dependencies", args: []string{"compact", "--help"}, out: "--repository"},
 		{name: "version metadata", args: []string{"--version"}, out: "cairn 0.1.0-test\n"},
 		{name: "invalid invocation", args: []string{"--unknown"}, code: 3},
 	} {
