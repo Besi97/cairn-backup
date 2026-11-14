@@ -2,7 +2,7 @@
 
 This is the version 1 configuration contract agreed in
 [#52](https://github.com/Besi97/cairn-backup/issues/52). Configuration loading and
-checking are implemented; workflow execution follows in #54 and scheduling in
+checking and manual workflow execution are implemented; scheduling follows in
 #55. Standalone `backup`, `prune`, and `compact` remain
 usable without configuration or a scheduler and do not discover config files.
 
@@ -126,11 +126,35 @@ The manual command contract is:
 cairn workflow run NAME [--config PATH]
 ```
 
-This command is planned for #54 and is not available yet. It runs the workflow
-without starting a scheduler and does not require `cron`. Standalone command
+It runs the workflow without starting a scheduler and does not require `cron`.
+Standalone command
 flags do not override workflow task fields. Persisted `dry_run` settings,
 confirmation flags, arbitrary Borg options, and task-level credential/location
 overrides are not supported.
+
+The entire selected configuration is validated before any operation starts.
+Workflow names are case-sensitive. All task requests are prepared before
+execution; generated archive-prefix timestamps use one UTC time sampled for the
+run. Credential files are opened only when their operations execute, not during
+preparation. Compact ignores configured encryption credentials, including
+passphrase files, while retaining SSH authentication.
+
+Task status and native Borg diagnostic chunks are labelled with the workflow,
+one-based stage/task positions, operation, and repository name. Task completion
+and the workflow summary go to stdout; scopes and Borg diagnostics go to stderr.
+Concurrent output order is not guaranteed. A warning or failure summary reports
+how many later stages were not started. Completed operations are not rolled back.
+
+Exit codes are `0` for success, `1` for warnings without failures, `2` for any
+execution failure, and `3` for invalid arguments/configuration or an unknown
+workflow. A Borg child interrupted independently of Cairn is a task failure, with
+its signal retained in diagnostics. SIGINT/SIGTERM cancellation of Cairn stops
+active tasks, waits for owned subprocess cleanup, and exits `130`/`143`.
+Warnings/failures do not cancel siblings or trigger retries.
+
+Cross-process workflow overlap protection is **not implemented yet**; it follows
+in #55. For now, simultaneous manual invocations can run the same workflow.
+Borg's repository/cache locks remain authoritative.
 
 ### Backup task
 

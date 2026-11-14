@@ -29,6 +29,9 @@ func main() {
 		os.Exit(2)
 	}
 	if len(os.Args) == 2 && os.Args[1] == "--version" {
+		if os.Getenv("FAKE_CHECK_INLINE") != "" && os.Getenv("BORG_PASSPHRASE") != "inherited" {
+			panic("configured inline credential reached probe")
+		}
 		if path := os.Getenv("FAKE_CREDENTIAL_PATH"); path != "" {
 			fds, err := os.ReadDir("/proc/self/fd")
 			if err != nil {
@@ -47,6 +50,13 @@ func main() {
 		}
 		code, _ := strconv.Atoi(os.Getenv("FAKE_VERSION_EXIT"))
 		os.Exit(code)
+	}
+	if want := os.Getenv("FAKE_CHECK_INLINE"); want != "" {
+		_, command := os.LookupEnv("BORG_PASSCOMMAND")
+		_, descriptor := os.LookupEnv("BORG_PASSPHRASE_FD")
+		if command || descriptor || fmt.Sprintf("%x", sha256.Sum256([]byte(os.Getenv("BORG_PASSPHRASE")))) != want {
+			panic("incorrect inline credential selection")
+		}
 	}
 	if os.Getenv("FAKE_READ_PASSPHRASE") == "yes" {
 		fd, err := strconv.Atoi(os.Getenv("BORG_PASSPHRASE_FD"))

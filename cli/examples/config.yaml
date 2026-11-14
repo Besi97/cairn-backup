@@ -1,6 +1,7 @@
 # yaml-language-server: $schema=../schema/config-v1.schema.json
 # Validate with: cairn config check --config cli/examples/config.yaml
-# Workflow execution follows in #54. Replace all example paths and secrets.
+# Run with: cairn workflow run nightly --config cli/examples/config.yaml
+# Replace all example paths and secrets before running.
 version: 1
 
 repositories:
