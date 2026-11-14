@@ -123,7 +123,7 @@ func TestInvalidOptions(t *testing.T) {
 		})
 	}
 	for _, location := range []string{"::", "repo::archive", "host:repo::archive", "ssh://host/repo::archive", "user@[::1]:repo::archive", "file://"} {
-		if _, _, err := repositoryLocation(location, t.TempDir()); err == nil {
+		if _, err := Prepare(Options{Repository: location, ArchiveName: "name", Sources: []string{"source"}}, t.TempDir(), time.Time{}); err == nil {
 			t.Errorf("accepted invalid repository input: %q", location)
 		}
 	}

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -236,10 +235,6 @@ func TestBackupCancellation(t *testing.T) {
 		})
 	}
 }
-
-type brokenWriter struct{}
-
-func (brokenWriter) Write([]byte) (int, error) { return 0, errors.New("output destination failed") }
 
 func TestBackupOutputFailures(t *testing.T) {
 	for _, stream := range []string{"stdout", "stderr"} {

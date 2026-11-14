@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,10 @@ import (
 )
 
 var fakeBorg string
+
+type brokenWriter struct{}
+
+func (brokenWriter) Write([]byte) (int, error) { return 0, errors.New("output destination failed") }
 
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "cairn-cli-tests-")
@@ -81,7 +86,7 @@ func realBorgEnvironment(t *testing.T) string {
 	t.Helper()
 	binary := os.Getenv("CAIRN_TEST_BORG")
 	if binary == "" {
-		t.Skip("set CAIRN_TEST_BORG to exercise real Borg backups")
+		t.Skip("set CAIRN_TEST_BORG to exercise real Borg operations")
 	}
 	binary, err := filepath.Abs(binary)
 	if err != nil {
@@ -164,6 +169,48 @@ func awaitLockAttempt(t *testing.T, repository string) {
 		case <-deadline.C:
 			t.Fatal("Borg did not attempt lock acquisition")
 		case <-tick.C:
+		}
+	}
+}
+
+type archiveFixture struct {
+	name      string
+	timestamp string
+}
+
+func seedArchives(t *testing.T, ctx context.Context, binary, repository, passphrase string, archives []archiveFixture) {
+	t.Helper()
+	// Use an empty directory so fixture archives are cheap but valid. Checkpoint
+	// suffixes deliberately exercise Borg's own checkpoint classification.
+	source := t.TempDir()
+	for _, archive := range archives {
+		borgOutput(t, ctx, binary, passphrase, "create", "--timestamp="+archive.timestamp, "--", repository+"::"+archive.name, source)
+	}
+}
+
+func repositoryArchives(t *testing.T, ctx context.Context, binary, repository, passphrase string) map[string]string {
+	t.Helper()
+	var data struct {
+		Archives []struct{ Name, ID string }
+	}
+	if err := json.Unmarshal(borgOutput(t, ctx, binary, passphrase, "list", "--json", "--consider-checkpoints", repository), &data); err != nil {
+		t.Fatal(err)
+	}
+	result := make(map[string]string, len(data.Archives))
+	for _, archive := range data.Archives {
+		result[archive.Name] = archive.ID
+	}
+	return result
+}
+
+func assertArchiveNames(t *testing.T, archives map[string]string, names ...string) {
+	t.Helper()
+	if len(archives) != len(names) {
+		t.Fatalf("archives = %v, want %v", archives, names)
+	}
+	for _, name := range names {
+		if _, ok := archives[name]; !ok {
+			t.Fatalf("missing %q in archives %v", name, archives)
 		}
 	}
 }
