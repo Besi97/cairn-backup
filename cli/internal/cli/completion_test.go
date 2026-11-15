@@ -41,6 +41,8 @@ func TestCompletionCommandsAndFlags(t *testing.T) {
 		{"compact flags", []string{"compact", "--"}, "--repository"},
 		{"workflow commands", []string{"workflow", ""}, "run"},
 		{"config commands", []string{"config", ""}, "check"},
+		{"agent commands", []string{"agent", ""}, "run"},
+		{"agent flags", []string{"agent", "run", "--"}, "--config"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -68,6 +70,7 @@ func TestCompletionPathDirectives(t *testing.T) {
 		{"source directory", []string{"backup", "--source-root", "some/path"}, ":16\n"},
 		{"source path", []string{"backup", "some/path"}, ":0\n"},
 		{"credential file", []string{"compact", "--passphrase-file", "some/path"}, ":0\n"},
+		{"agent config", []string{"agent", "run", "--config", "some/path"}, ":0\n"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			code, stdout, stderr := runCompletion(t, tt.args...)

@@ -25,9 +25,9 @@ Selected invalid/unreadable files are errors; files are never merged.
 
 Checking also validates five-field cron schedules, supported calendar aliases,
 and optional workflow timezones. See the [schedule contract](../docs/configuration.md#schedules)
-for the dialect and clock behavior. The agent is not implemented yet; schedules
-do not run automatically. Standalone operations, help, and version never load
-configuration.
+for the dialect and clock behavior. Schedules run only while
+[`cairn agent run`](#scheduled-workflows) is active. Standalone operations, help,
+and version never load configuration.
 
 ## Shell completion
 
@@ -198,9 +198,45 @@ runs of the same workflow/config with exit code `2`. Locks remain held by Borg
 children that survive a Cairn crash. See
 [workflow overlap](../docs/configuration.md#workflow-overlap) for lock locations
 and the shared runtime/state environment required for coordination.
-Automatic scheduling is not implemented yet.
 See the [configuration contract](../docs/configuration.md) and
 [example configuration](examples/config.yaml).
+
+## Scheduled workflows
+
+```sh
+cairn agent run --config ./config.yaml
+```
+
+The agent runs in the foreground until interrupted. Omit `--config` to use the
+same user-then-system discovery as manual workflows. It validates and loads the
+whole configuration once; restart to apply edits. At least one workflow must
+have `cron`. Manual-only workflows are ignored by the agent.
+
+There is no startup backup or catch-up backlog: scheduling starts at the next
+future occurrence. Expired minutes are skipped; a late wakeup can still dispatch
+the current minute. Clock adjustments do not replay already-consumed occurrences.
+See the [schedule contract](../docs/configuration.md#schedules) for timezones and DST.
+
+Different workflows run concurrently, without a repository queue. Duplicate runs
+are skipped without waiting or retrying, including when a manual run holds the
+workflow lock. Warnings/failures stop later stages of that run, not the agent;
+later cron occurrences remain independent attempts.
+
+Only one agent may run for a canonical config path. Use the same runtime/state
+environment for manual and agent invocations, including service managers; see
+[workflow overlap](../docs/configuration.md#workflow-overlap). Manual invocations
+are still allowed while an agent is idle.
+
+Agent lifecycle and workflow summaries go to stderr with UTC timestamps; task
+outcomes go to stdout and labelled Borg diagnostics to stderr. No persistent
+run history is stored. Output failure stops the agent and cancels active work.
+SIGINT/SIGTERM stop dispatching, cancel active workflows, and wait for subprocess
+cleanup before releasing the agent lock.
+
+Exit codes: `3` for invalid arguments/configuration or no scheduled workflows,
+`2` for agent startup/runtime failures (including a duplicate agent or output
+failure), and `130`/`143` for SIGINT/SIGTERM. Individual workflow warnings/failures
+are reported without terminating the process.
 
 ## Compact
 
@@ -293,7 +329,7 @@ failures, and interruption while retaining the process exit code.
 ## Locking
 
 Borg's repository and cache locks remain authoritative across Cairn invocations,
-future scheduler operations, and external Borg processes. `LockWaitArgs` prepares
+scheduled operations, and external Borg processes. `LockWaitArgs` prepares
 an explicit native timeout: 60 seconds by default, with zero requesting no waiting.
 Backup, prune, and compact expose `--lock-wait SECONDS`. This is not an
 overall operation or SSH connection timeout. Cairn does not queue operations,

@@ -31,6 +31,9 @@ type Executor struct {
 	Runner OperationRunner
 	Stdout io.Writer
 	Stderr io.Writer
+	// Output optionally shares attributed, atomic output chunks across workflow
+	// runs and agent reports. When set it replaces Stdout and Stderr.
+	Output *Output
 	// AgentLock is owned by the agent for its entire lifetime. Passing it to
 	// Borg prevents a replacement agent starting while orphan work survives.
 	AgentLock *os.File
@@ -80,7 +83,10 @@ func (e Executor) Run(ctx context.Context, plan Plan) (Result, error) {
 	if runner == nil {
 		runner = borg.Runner{}
 	}
-	output := &outputStreams{stdout: e.Stdout, stderr: e.Stderr}
+	output := e.Output
+	if output == nil {
+		output = NewOutput(e.Stdout, e.Stderr)
+	}
 	result := Result{Outcome: borg.Success}
 	for i, stage := range plan.Stages {
 		if err := ctx.Err(); err != nil {
@@ -132,7 +138,7 @@ func (e Executor) Run(ctx context.Context, plan Plan) (Result, error) {
 	return result, nil
 }
 
-func runTask(ctx context.Context, runner OperationRunner, output *outputStreams, label string, task Task) TaskResult {
+func runTask(ctx context.Context, runner OperationRunner, output *Output, label string, task Task) TaskResult {
 	failed := TaskResult{Result: borg.Result{Outcome: borg.Failure, ExitCode: -1}}
 	if err := ctx.Err(); err != nil {
 		failed.Result.Outcome, failed.Err = borg.Interrupted, err
@@ -163,16 +169,25 @@ func runTask(ctx context.Context, runner OperationRunner, output *outputStreams,
 	return TaskResult{Result: result, Err: err}
 }
 
-// One mutex covers both streams, even if callers supply the same writer. Each
-// chunk is attributed without buffering arbitrary Borg output or progress lines.
-type outputStreams struct {
+// Output serializes attributed task chunks and unlabelled diagnostic reports.
+// One mutex covers both streams, even if they refer to the same writer.
+type Output struct {
 	mu             sync.Mutex
 	stdout, stderr io.Writer
 	outErr, errErr error
 }
 
+func NewOutput(stdout, stderr io.Writer) *Output {
+	return &Output{stdout: stdout, stderr: stderr}
+}
+
+// Write emits an unlabelled diagnostic chunk, e.g. a scheduler lifecycle report.
+func (o *Output) Write(p []byte) (int, error) {
+	return (&taskWriter{output: o}).Write(p)
+}
+
 type taskWriter struct {
-	output *outputStreams
+	output *Output
 	label  string
 	stdout bool
 }
@@ -191,15 +206,17 @@ func (w *taskWriter) Write(p []byte) (int, error) {
 	if writer == nil {
 		return len(p), nil
 	}
-	n, err := io.WriteString(writer, w.label)
-	if err == nil && n != len(w.label) {
-		err = io.ErrShortWrite
+	if w.label != "" {
+		n, err := io.WriteString(writer, w.label)
+		if err == nil && n != len(w.label) {
+			err = io.ErrShortWrite
+		}
+		if err != nil {
+			*sticky = err
+			return 0, err
+		}
 	}
-	if err != nil {
-		*sticky = err
-		return 0, err
-	}
-	n, err = writer.Write(p)
+	n, err := writer.Write(p)
 	if err == nil && n != len(p) {
 		err = io.ErrShortWrite
 	}
