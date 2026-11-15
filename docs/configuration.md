@@ -20,7 +20,8 @@ cairn config check --config ./config.yaml
 Checking validates the entire selected file, not just a selected workflow. Success
 prints the selected absolute path and exits with `0`; missing, unreadable, or
 invalid configuration exits with `3`. An explicitly empty `--config` is an error.
-The flag belongs to `config check`, not standalone operations.
+The terminal interface uses the same selection and validation rules. Standalone
+operations do not discover configuration.
 
 No Borg installation or network access is needed. Checking does not open
 passphrase/identity files or require repository/source paths to exist. It cannot

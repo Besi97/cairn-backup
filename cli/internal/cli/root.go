@@ -74,11 +74,13 @@ func newRootCommand(version string) *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return cmd.Help()
+			return runDefaultTUI(cmd)
 		},
 	}
 	cmd.SetVersionTemplate("cairn {{.Version}}\n")
 	cmd.AddCommand(newCheckCommand())
+	addTUIConfigFlag(cmd)
+	cmd.AddCommand(newTUICommand())
 	cmd.AddCommand(newBackupCommand(), newPruneCommand(), newCompactCommand(), newConfigCommand(), newWorkflowCommand(), newAgentCommand())
 	return cmd
 }
