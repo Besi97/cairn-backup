@@ -13,6 +13,7 @@ import (
 
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
 	"github.com/Besi97/cairn-backup/cli/internal/config"
+	"github.com/Besi97/cairn-backup/cli/internal/lifecycle"
 	"github.com/Besi97/cairn-backup/cli/internal/runlock"
 	"github.com/Besi97/cairn-backup/cli/internal/schedule"
 	"github.com/Besi97/cairn-backup/cli/internal/workflow"
@@ -117,8 +118,10 @@ func (a *Agent) Run(ctx context.Context, stdout, stderr io.Writer) error {
 				break
 			}
 			item := &a.entries[i]
+			expected := item.next
 			due, missed := item.due(now)
 			if missed {
+				a.skippedRun(workCtx, item.name, expected, lifecycle.Expired)
 				report("workflow %q skipped expired occurrence(s)", item.name)
 			}
 			if due.IsZero() {
@@ -132,6 +135,7 @@ func (a *Agent) Run(ctx context.Context, stdout, stderr io.Writer) error {
 			}
 			activeMu.Unlock()
 			if busy {
+				a.skippedRun(workCtx, name, due, lifecycle.Busy)
 				report("workflow %q skipped: already running", name)
 				continue
 			}
@@ -150,29 +154,34 @@ func (a *Agent) Run(ctx context.Context, stdout, stderr io.Writer) error {
 					}
 				}()
 				if workCtx.Err() != nil {
+					a.skippedRun(workCtx, name, due, lifecycle.Cancelled)
 					return
 				}
 				dispatched := a.clock.Now()
 				// A delayed goroutine is not permission to queue an expired run.
 				if dispatched.Before(due) || !dispatched.Before(due.Add(time.Minute)) {
+					a.skippedRun(workCtx, name, due, lifecycle.Expired)
 					report("workflow %q skipped: occurrence is no longer current", name)
 					return
 				}
 				plan, prepareErr := workflow.Prepare(a.selected, name, dispatched)
 				if prepareErr != nil {
+					workflow.Reject(lifecycle.WithSchedule(workCtx, due), a.attribution(name), lifecycle.PreparationFailed)
 					report("workflow %q failed: %v", name, prepareErr)
 					return
 				}
 				report("workflow %q dispatching (scheduled %s)", name, due.UTC().Format(time.RFC3339))
 				if workCtx.Err() != nil {
+					a.skippedRun(workCtx, name, due, lifecycle.Cancelled)
 					return
 				}
 				// Output can block or the wall clock can jump during preparation.
 				if now := a.clock.Now(); now.Before(due) || !now.Before(due.Add(time.Minute)) {
+					a.skippedRun(workCtx, name, due, lifecycle.Expired)
 					report("workflow %q skipped: occurrence is no longer current", name)
 					return
 				}
-				result, runErr := execute(workCtx, plan)
+				result, runErr := execute(lifecycle.WithSchedule(workCtx, due), plan)
 				if errors.Is(runErr, runlock.ErrBusy) {
 					report("workflow %q skipped: already running", name)
 					return
@@ -214,6 +223,22 @@ func (a *Agent) Run(ctx context.Context, stdout, stderr io.Writer) error {
 		return fmt.Errorf("agent output: %w", err)
 	}
 	return ctx.Err()
+}
+
+func (a *Agent) skippedRun(ctx context.Context, name string, due time.Time, reason lifecycle.Reason) {
+	workflow.Skip(lifecycle.WithSchedule(ctx, due), a.attribution(name), reason)
+}
+
+func (a *Agent) attribution(name string) workflow.Plan {
+	plan := workflow.Plan{Name: name}
+	for _, stage := range a.selected.Workflows[name].Stages {
+		tasks := make([]workflow.Task, len(stage.Tasks))
+		for i, task := range stage.Tasks {
+			tasks[i] = workflow.Task{Type: task.Type, Repository: task.Repository}
+		}
+		plan.Stages = append(plan.Stages, tasks)
+	}
+	return plan
 }
 
 func (e *entry) advance(after time.Time) {
