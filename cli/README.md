@@ -1,8 +1,9 @@
 # Cairn CLI
 
 The CLI provides standalone backups, pruning, and compaction, help, and version
-output, plus optional configuration checking and manual workflows. Scheduling
-will be added separately. Install stable Borg 1.x
+output, plus optional configuration checking, manual workflows, and a foreground
+scheduler. See the [installation guide](../docs/installation.md) and optional
+[systemd setup](../docs/systemd.md). Install stable Borg 1.x
 (at least 1.2.8) separately; SSH repositories also require OpenSSH.
 
 ## Configuration

@@ -16,7 +16,7 @@ func newConfigCommand() *cobra.Command {
 		Use:   "check",
 		Short: "Validate configuration without Borg or repository access",
 		Long: "Validate the entire selected configuration without executing Borg, opening credential files, or checking repository/source existence.\n" +
-			"Checks cron syntax and timezone names offline; the agent is not implemented yet.",
+			"Checks cron syntax and timezone names offline; use 'cairn agent run' to dispatch scheduled workflows.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			options, err := config.Environment()
