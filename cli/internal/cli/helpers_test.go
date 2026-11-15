@@ -15,13 +15,16 @@ import (
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
 )
 
-var fakeBorg string
+var fakeBorg, cairnBinary string
 
 type brokenWriter struct{}
 
 func (brokenWriter) Write([]byte) (int, error) { return 0, errors.New("output destination failed") }
 
 func TestMain(m *testing.M) {
+	if os.Getenv("CAIRN_TEST_AGENT_HELPER") == "1" {
+		os.Exit(agentLockHelper())
+	}
 	dir, err := os.MkdirTemp("", "cairn-cli-tests-")
 	if err != nil {
 		panic(err)
@@ -33,6 +36,12 @@ func TestMain(m *testing.M) {
 		_ = os.RemoveAll(dir)
 		panic(string(out) + err.Error())
 	}
+	cairnBinary = filepath.Join(dir, "cairn")
+	build = exec.Command("go", "build", "-o", cairnBinary, "../../cmd/cairn")
+	if out, err := build.CombinedOutput(); err != nil {
+		_ = os.RemoveAll(dir)
+		panic(string(out) + err.Error())
+	}
 	code := m.Run()
 	_ = os.RemoveAll(dir)
 	os.Exit(code)
@@ -40,6 +49,7 @@ func TestMain(m *testing.M) {
 
 func fakeBorgEnvironment(t *testing.T) {
 	t.Helper()
+	lockEnvironment(t)
 	t.Setenv("PATH", filepath.Dir(fakeBorg))
 	t.Setenv("FAKE_VERSION", "borg 1.4.5")
 	for _, key := range []string{"BORG_PASSPHRASE", "BORG_PASSCOMMAND", "BORG_PASSPHRASE_FD", "FAKE_EXIT", "FAKE_RELEASE", "FAKE_TREE", "FAKE_VERSION_EXIT", "FAKE_READ_PASSPHRASE", "FAKE_SIGNAL"} {
@@ -89,6 +99,7 @@ func realBorgEnvironment(t *testing.T) string {
 	if binary == "" {
 		t.Skip("set CAIRN_TEST_BORG to exercise real Borg operations")
 	}
+	lockEnvironment(t)
 	binary, err := filepath.Abs(binary)
 	if err != nil {
 		t.Fatal(err)

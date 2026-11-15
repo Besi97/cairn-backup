@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"sync"
 
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
+	"github.com/Besi97/cairn-backup/cli/internal/runlock"
 )
 
 type OperationRunner interface {
@@ -29,9 +31,49 @@ type Executor struct {
 	Runner OperationRunner
 	Stdout io.Writer
 	Stderr io.Writer
+	// AgentLock is owned by the agent for its entire lifetime. Passing it to
+	// Borg prevents a replacement agent starting while orphan work survives.
+	AgentLock *os.File
 }
 
-// Run waits for all siblings even after a warning or failure. Only cancellation
+// RunLocked is the shared manual/scheduled entry point. ErrBusy means manual
+// callers fail and scheduled callers skip; no caller should queue or retry it.
+// Identity must be captured once when the configuration snapshot is loaded.
+// Runner must be nil or a borg.Runner so descriptor inheritance is guaranteed.
+func (e Executor) RunLocked(ctx context.Context, identity runlock.Identity, plan Plan) (Result, error) {
+	failed := Result{Outcome: borg.Failure}
+	if err := ctx.Err(); err != nil {
+		return Result{Outcome: borg.Interrupted}, err
+	}
+	store, err := runlock.Open()
+	if err != nil {
+		return failed, err
+	}
+	defer store.Close()
+	lock, err := store.Workflow(identity, plan.Name)
+	if err != nil {
+		return failed, err
+	}
+	defer lock.Close()
+	files := []*os.File{lock}
+	if e.AgentLock != nil {
+		files = append(files, e.AgentLock)
+	}
+	runner := borg.Runner{}
+	if e.Runner != nil {
+		var ok bool
+		runner, ok = e.Runner.(borg.Runner)
+		if !ok {
+			return failed, errors.New("locked workflows require a Borg runner with descriptor inheritance")
+		}
+	}
+	runner.InheritedFiles = append(append([]*os.File(nil), runner.InheritedFiles...), files...)
+	e.Runner = runner
+	return e.Run(ctx, plan)
+}
+
+// Run is the uncoordinated execution primitive; entry points use RunLocked.
+// It waits for all siblings even after a warning or failure. Only cancellation
 // interrupts active operations, and all runners return before Run returns.
 func (e Executor) Run(ctx context.Context, plan Plan) (Result, error) {
 	runner := e.Runner

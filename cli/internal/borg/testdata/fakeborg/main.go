@@ -78,7 +78,8 @@ func main() {
 			Dir       string
 			Value     string
 			ParentPID int
-		}{os.Args[1:], dir, os.Getenv("FAKE_VALUE"), os.Getppid()})
+			PID       int
+		}{os.Args[1:], dir, os.Getenv("FAKE_VALUE"), os.Getppid(), os.Getpid()})
 		if err := os.WriteFile(path, data, 0600); err != nil {
 			panic(err)
 		}

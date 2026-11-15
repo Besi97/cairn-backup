@@ -47,6 +47,10 @@ type Request struct {
 // Lock waiting is delegated to Borg through prepared operation arguments.
 type Runner struct {
 	Executable string
+	// InheritedFiles keeps caller-owned advisory locks alive in Borg after a
+	// Cairn crash. The caller closes them only after every Run has returned.
+	// They follow credential descriptors and never alter BORG_PASSPHRASE_FD.
+	InheritedFiles []*os.File
 }
 
 // Run checks compatibility before executing an operation. Warnings are completed
@@ -79,6 +83,7 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	defer access.close()
 	probe := exec.Command(path, "--version")
 	probe.Dir, probe.Env = req.Dir, env
+	probe.ExtraFiles = r.InheritedFiles
 	var version cappedOutput
 	probe.Stdout, probe.Stderr = &version, &version
 	if err := runProcess(ctx, probe, shutdownGrace); err != nil {
@@ -103,6 +108,7 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	}
 	cmd := exec.Command(path, args...)
 	cmd.Dir, cmd.Env, cmd.ExtraFiles = req.Dir, access.env, access.files
+	cmd.ExtraFiles = append(append([]*os.File(nil), cmd.ExtraFiles...), r.InheritedFiles...)
 	cmd.Stdout, cmd.Stderr = output, output
 	err = runProcess(ctx, cmd, shutdownGrace)
 	if ctx.Err() != nil && err != nil {
