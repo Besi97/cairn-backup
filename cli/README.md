@@ -136,6 +136,39 @@ from Cairn's invocation directory.
 `--dry-run` is rejected: Borg 1.2.8 has no compaction preview, and Borg 1.4.5's
 option merely does nothing rather than providing a useful preview.
 
+## Integrity checks
+
+Check an existing local or SSH repository without configuration or a scheduler:
+
+```sh
+cairn check --repository /backups/repo
+cairn check --repository /backups/repo --verify-data
+cairn check --repository ssh://user@backup-host/./repo \
+  --passphrase-file ./passphrase --identity-file ~/.ssh/backup --lock-wait 60
+```
+
+Require an explicit nonempty `--repository`; there is no `BORG_REPO` fallback.
+Default checks cover **whole-repository consistency**, including segment sizes
+and checksums, plus **all archive metadata** and referenced-chunk existence.
+They do **not cryptographically verify file contents**. `--verify-data` also
+reads, decrypts, decompresses, and cryptographically verifies archived data.
+This can take a long time and transfer substantial data from SSH repositories.
+Remote repository consistency checks run on the server; archive checks run on
+the client and need the encryption key and working credentials.
+
+Checks never request repair or change archive contents, but Borg can acquire
+locks and update its own state; this is not a promise of no filesystem writes.
+There are no repair, partial-duration, repository-only, archives-only, archive
+selector, dry-run, or arbitrary Borg options. A successful check is not a restore
+test or a guarantee against future damage. Investigate warnings and failures
+using the streamed Borg diagnostics; Cairn does not attempt repairs or retries.
+
+Relative repository and access-file paths, credential precedence, SSH host
+verification, locking, cancellation, and exit codes follow the shared contracts
+below. Scope and Borg diagnostics go to stderr; the final check outcome goes to
+stdout. Exit `1` means warnings, not a clean check; `2` means failure (including
+lock timeout), `3` invalid inputs, and `130`/`143` interruption.
+
 ## Configuration
 
 The [configuration contract](../docs/configuration.md),

@@ -78,6 +78,7 @@ func newRootCommand(version string) *cobra.Command {
 		},
 	}
 	cmd.SetVersionTemplate("cairn {{.Version}}\n")
+	cmd.AddCommand(newCheckCommand())
 	cmd.AddCommand(newBackupCommand(), newPruneCommand(), newCompactCommand(), newConfigCommand(), newWorkflowCommand(), newAgentCommand())
 	return cmd
 }
