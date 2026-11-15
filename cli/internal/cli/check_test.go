@@ -51,7 +51,7 @@ func TestCheckHelpAndCompletion(t *testing.T) {
 	if code := Run(t.Context(), []string{"check", "--help"}, &stdout, &stderr, "test"); code != 0 || stderr.Len() != 0 {
 		t.Fatalf("code = %d, stderr = %s", code, &stderr)
 	}
-	for _, text := range []string{"NOT cryptographically verified", "--verify-data", "never request repair", "--lock-wait"} {
+	for _, text := range []string{"NOT cryptographically verified", "--verify-data", "never request repair", "--lock-wait", "warnings can indicate corruption or skipped checks"} {
 		if !strings.Contains(stdout.String(), text) {
 			t.Errorf("help missing %q: %s", text, &stdout)
 		}
@@ -120,7 +120,7 @@ func TestCheckInvocation(t *testing.T) {
 		if stdout.String() != "Check completed.\n" {
 			t.Fatalf("stdout = %q", &stdout)
 		}
-		for _, text := range []string{"Check scope: whole repository consistency", "all archive metadata", scope, "no repair", "stdout diagnostic", "stderr diagnostic"} {
+		for _, text := range []string{"Check scope: whole repository consistency", "all archive metadata", scope, "no repair", "warnings can indicate corruption or skipped checks", "stdout diagnostic", "stderr diagnostic"} {
 			if !strings.Contains(stderr.String(), text) {
 				t.Errorf("missing %q in stderr: %s", text, &stderr)
 			}

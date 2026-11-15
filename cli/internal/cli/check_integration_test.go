@@ -103,7 +103,7 @@ func TestRealBorgCheckDetectsDamageWithoutRepair(t *testing.T) {
 		if verify {
 			args = append(args, "--verify-data")
 		}
-		if code := Run(ctx, args, &stdout, &stderr, "test"); code != 2 || stdout.String() != "Check failed.\n" ||
+		if code := Run(ctx, args, &stdout, &stderr, "test"); code != 1 || stdout.String() != "Check completed with warnings.\n" ||
 			!strings.Contains(stderr.String(), "Invalid segment magic") {
 			t.Fatalf("damage code = %d, stdout = %s, stderr = %s", code, &stdout, &stderr)
 		}

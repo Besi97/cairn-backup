@@ -168,6 +168,8 @@ verification, locking, cancellation, and exit codes follow the shared contracts
 below. Scope and Borg diagnostics go to stderr; the final check outcome goes to
 stdout. Exit `1` means warnings, not a clean check; `2` means failure (including
 lock timeout), `3` invalid inputs, and `130`/`143` interruption.
+Borg can report detected corruption as warnings and skip archive checks after
+repository errors. Always inspect the diagnostics for any nonzero outcome.
 
 ## Configuration
 

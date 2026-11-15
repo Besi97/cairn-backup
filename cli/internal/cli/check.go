@@ -22,6 +22,7 @@ func newCheckCommand() *cobra.Command {
 			"to also read, decrypt, and decompress all archived data. This can take a long time\n" +
 			"and transfer substantial data for SSH repositories. Encrypted archives need their key and passphrase.\n" +
 			"Checks never request repair, but may acquire locks and update Borg state.\n" +
+			"Borg warnings can indicate corruption or skipped checks; inspect its diagnostics.\n" +
 			"There are no archive selectors, partial checks, repair, or dry-run options.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -50,6 +51,7 @@ func newCheckCommand() *cobra.Command {
 			if options.VerifyData {
 				status = "Check scope: whole repository consistency, all archive metadata, and cryptographic file-content verification; may take a long time and transfer substantial remote data; no repair"
 			}
+			status += "\nBorg warnings can indicate corruption or skipped checks; inspect its diagnostics."
 			return runOperation(cmd, request, "Check", status, "")
 		},
 	}
