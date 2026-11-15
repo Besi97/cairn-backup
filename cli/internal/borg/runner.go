@@ -41,6 +41,9 @@ type Request struct {
 	Env         map[string]string
 	Diagnostics io.Writer
 	Access      AccessOptions
+	// Stdout separates result data from stderr diagnostics when non-nil.
+	// Nil preserves the combined diagnostic stream used by existing operations.
+	Stdout io.Writer
 }
 
 // Runner uses Borg from PATH unless Executable selects an explicit binary.
@@ -110,11 +113,21 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	cmd.Dir, cmd.Env, cmd.ExtraFiles = req.Dir, access.env, access.files
 	cmd.ExtraFiles = append(append([]*os.File(nil), cmd.ExtraFiles...), r.InheritedFiles...)
 	cmd.Stdout, cmd.Stderr = output, output
+	var stdout *lockedWriter
+	if req.Stdout != nil {
+		stdout = &lockedWriter{writer: req.Stdout}
+		cmd.Stdout = stdout
+	}
 	err = runProcess(ctx, cmd, shutdownGrace)
 	if ctx.Err() != nil && err != nil {
 		result := processResult(cmd)
 		result.Outcome = Interrupted
 		return result, err
+	}
+	if stdout != nil && stdout.Err() != nil {
+		result := processResult(cmd)
+		result.Outcome = Failure
+		return result, fmt.Errorf("write Borg results: %w", errors.Join(stdout.Err(), err))
 	}
 	if outputErr := output.Err(); outputErr != nil {
 		// Cmd.Wait prefers an ExitError over its output-copy error. A writer
