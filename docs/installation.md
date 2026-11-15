@@ -56,6 +56,13 @@ Maintainers can build the two archives and `SHA256SUMS` with
 workflow builds the same files as a downloadable workflow artifact; it does not
 publish a GitHub Release or create a tag.
 
+Publishing a GitHub Release with a version tag such as `v0.1.0` triggers the
+Release workflow. It builds from that exact tag, verifies the archives and
+installer, and attaches both Linux archives and `SHA256SUMS` to the release.
+Prerelease tags such as `v0.1.0-rc.1` are also supported. Saving a draft does not
+trigger a build; the release is visible while the workflow runs, so wait for it
+to finish before installing. Existing assets are not overwritten.
+
 ## Upgrade and remove
 
 Run the installer for the new version. It replaces only Cairn's binary and
