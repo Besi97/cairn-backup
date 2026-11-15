@@ -189,7 +189,7 @@ func safeFields(fields []string) []string {
 var knownFields = map[string]bool{
 	"version": true, "repositories": true, "workflows": true,
 	"location": true, "passphrase": true, "passphrase_file": true, "identity_file": true,
-	"cron": true, "stages": true, "tasks": true, "type": true, "repository": true,
+	"cron": true, "timezone": true, "stages": true, "tasks": true, "type": true, "repository": true,
 	"archive_prefix": true, "archive_name": true, "source_root": true, "sources": true,
 	"exclude": true, "lock_wait": true, "keep_within": true, "keep_secondly": true,
 	"keep_minutely": true, "keep_hourly": true, "keep_daily": true, "keep_weekly": true,

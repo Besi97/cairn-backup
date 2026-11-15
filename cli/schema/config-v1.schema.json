@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/Besi97/cairn-backup/main/cli/schema/config-v1.schema.json",
   "title": "Cairn configuration, version 1",
-  "description": "Named repositories and workflows. Validate with cairn config check; workflow execution is delivered separately. See docs/configuration.md.",
+  "description": "Named repositories and workflows. Validate offline with cairn config check. See docs/configuration.md.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "repositories", "workflows"],
@@ -67,7 +67,11 @@
       "properties": {
         "cron": {
           "$ref": "#/$defs/nonemptyString",
-          "description": "Optional cron schedule. Omit for manual-only execution. Cron dialect and timezone semantics are settled in issue #55."
+          "description": "Five-field cron (minute hour day-of-month month day-of-week), or @hourly, @daily/@midnight, @weekly, @monthly, @yearly/@annually. Omit for manual-only execution. Syntax/ranges are checked by cairn config check."
+        },
+        "timezone": {
+          "$ref": "#/$defs/nonemptyString",
+          "description": "IANA timezone name or UTC for cron; defaults to the agent process local timezone. Does not change archive timestamps or Borg retention. Validated by cairn config check, including on manual-only workflows."
         },
         "stages": {
           "type": "array",

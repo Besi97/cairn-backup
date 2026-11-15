@@ -16,6 +16,8 @@ repositories:
   remote: {location: "backup@host:repo", passphrase_file: ./missing-secret, identity_file: ./missing-key}
 workflows:
   manual:
+    cron: "@daily"
+    timezone: Europe/Berlin
     stages:
       - tasks:
           - {type: backup, repository: remote, archive_prefix: "{hostname}", source_root: ./missing-source, sources: [.]}
@@ -71,6 +73,49 @@ func TestConfigDiscoveryAndRedaction(t *testing.T) {
 			}
 		} else if code != 0 {
 			t.Fatalf("code=%d err=%q", code, &stderr)
+		}
+	}
+}
+
+func TestInvalidSchedulesFailOffline(t *testing.T) {
+	base := t.TempDir()
+	path := filepath.Join(base, "config.yaml")
+	t.Setenv("PATH", t.TempDir())
+	const secret = "never-print-this-secret"
+	for _, field := range []string{"cron", "timezone"} {
+		text := `version: 1
+repositories:
+  remote: {location: "backup@host:repo", passphrase_file: ./missing-secret, identity_file: ./missing-key}
+workflows:
+  manual:
+    stages:
+      - tasks:
+          - {type: backup, repository: remote, archive_prefix: docs, source_root: ./missing-source, sources: [.]}
+  invalid:
+    ` + field + `: ` + secret + `
+    stages:
+      - tasks:
+          - {type: compact, repository: remote}
+`
+		if err := os.WriteFile(path, []byte(text), 0600); err != nil {
+			t.Fatal(err)
+		}
+		for _, args := range [][]string{
+			{"config", "check", "--config", path},
+			{"workflow", "list", "--config", path},
+			{"workflow", "run", "manual", "--config", path},
+		} {
+			var out, stderr bytes.Buffer
+			code := Run(t.Context(), args, &out, &stderr, "test")
+			if code != 3 || out.Len() != 0 ||
+				!strings.Contains(stderr.String(), "/workflows/invalid/"+field+":") ||
+				strings.Contains(stderr.String(), secret) {
+				t.Fatalf("%v: code=%d out=%q err=%q", args, code, &out, &stderr)
+			}
+		}
+		_, out, stderr := runCompletion(t, "workflow", "run", "--config", path, "")
+		if out != ":4\n" || strings.Contains(stderr, secret) {
+			t.Fatalf("completion with invalid %s: out=%q err=%q", field, out, stderr)
 		}
 	}
 }

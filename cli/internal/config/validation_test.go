@@ -92,9 +92,9 @@ func TestValidConfigurations(t *testing.T) {
 			}
 		})
 	}
-	config, err := loadText(t, strings.Replace(withTask("{type: compact, repository: local, lock_wait: 0}"), "    stages:", "    cron: not-yet-validated\n    stages:", 1))
+	config, err := loadText(t, strings.Replace(withTask("{type: compact, repository: local, lock_wait: 0}"), "    stages:", "    cron: '@daily'\n    stages:", 1))
 	if err != nil || *firstTask(config).LockWait != 0 {
-		t.Fatalf("explicit zero or deferred cron: %v", err)
+		t.Fatalf("explicit zero or valid cron: %v", err)
 	}
 	if _, err := loadText(t, "version: 1\nrepositories: {a: &repo {location: ./a}, b: *repo}\nworkflows: {}"); err != nil {
 		t.Fatal(err)

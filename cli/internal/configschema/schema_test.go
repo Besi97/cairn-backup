@@ -1,5 +1,5 @@
 // Package configschema tests the published configuration contract independently
-// of the future runtime loader and without Borg or repository access.
+// of the runtime loader and without Borg or repository access.
 package configschema
 
 import (
@@ -165,6 +165,10 @@ func TestDocumentStructure(t *testing.T) {
 			d["repositories"], d["workflows"] = map[string]any{}, map[string]any{}
 		}},
 		{"scheduled workflow", true, func(d map[string]any) { workflow(d)["cron"] = "0 2 * * *" }},
+		{"schedule with timezone", true, func(d map[string]any) {
+			workflow(d)["cron"], workflow(d)["timezone"] = "@daily", "Europe/Berlin"
+		}},
+		{"manual workflow timezone", true, func(d map[string]any) { workflow(d)["timezone"] = "UTC" }},
 		{"parallel tasks", true, func(d map[string]any) {
 			stage(d)["tasks"] = []any{
 				yamlValue(t, "{type: compact, repository: local}"),
@@ -196,6 +200,9 @@ func TestDocumentStructure(t *testing.T) {
 		{"empty cron", false, func(d map[string]any) { workflow(d)["cron"] = "" }},
 		{"numeric cron", false, func(d map[string]any) { workflow(d)["cron"] = 123 }},
 		{"null cron", false, func(d map[string]any) { workflow(d)["cron"] = nil }},
+		{"empty timezone", false, func(d map[string]any) { workflow(d)["timezone"] = "" }},
+		{"numeric timezone", false, func(d map[string]any) { workflow(d)["timezone"] = 123 }},
+		{"null timezone", false, func(d map[string]any) { workflow(d)["timezone"] = nil }},
 		{"missing stages", false, func(d map[string]any) { delete(workflow(d), "stages") }},
 		{"empty stages", false, func(d map[string]any) { workflow(d)["stages"] = []any{} }},
 		{"null stages", false, func(d map[string]any) { workflow(d)["stages"] = nil }},
@@ -226,11 +233,12 @@ func TestDocumentStructure(t *testing.T) {
 }
 
 func TestRuntimeValidationBoundary(t *testing.T) {
-	// These are intentionally accepted structurally. #53/#55 must validate
+	// These are intentionally accepted structurally. The runtime loader validates
 	// references and operation/schedule semantics; schema success is not enough.
 	schema := loadSchema(t)
 	doc := taskDocument(t, "{type: compact, repository: not-defined}")
 	workflow(doc)["cron"] = "not-a-cron-expression"
+	workflow(doc)["timezone"] = "not-a-timezone"
 	repository(doc)["identity_file"] = "./identity-for-local-repo"
 	if err := schema.Validate(doc); err != nil {
 		t.Fatal(err)
