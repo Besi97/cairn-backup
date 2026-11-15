@@ -30,8 +30,9 @@ type Repository struct {
 }
 
 type Workflow struct {
-	Cron   string  `json:"cron"`
-	Stages []Stage `json:"stages"`
+	Cron     string  `json:"cron"`
+	Timezone string  `json:"timezone"`
+	Stages   []Stage `json:"stages"`
 }
 
 type Stage struct {

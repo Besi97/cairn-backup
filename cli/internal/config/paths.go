@@ -9,6 +9,7 @@ import (
 
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
 	"github.com/Besi97/cairn-backup/cli/internal/prune"
+	"github.com/Besi97/cairn-backup/cli/internal/schedule"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -96,6 +97,15 @@ func (config *Config) resolve(home string, doc *yaml.Node) error {
 	}
 	for _, name := range sortedKeys(config.Workflows) {
 		workflow := config.Workflows[name]
+		location, err := schedule.LoadLocation(workflow.Timezone)
+		if err != nil {
+			return fail([]string{"workflows", name, "timezone"}, err.Error())
+		}
+		if workflow.Cron != "" {
+			if _, err := schedule.Parse(workflow.Cron, location); err != nil {
+				return fail([]string{"workflows", name, "cron"}, err.Error())
+			}
+		}
 		for si := range workflow.Stages {
 			for ti := range workflow.Stages[si].Tasks {
 				task := &workflow.Stages[si].Tasks[ti]

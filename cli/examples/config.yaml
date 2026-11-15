@@ -18,8 +18,10 @@ repositories:
 
 workflows:
   nightly:
-    # Scheduling details (including timezone) are settled in issue #55.
+    # Validated now; automatic scheduling follows in #80.
     cron: "0 2 * * *"
+    # Omit timezone to use the agent process local timezone.
+    timezone: Europe/Berlin
     stages:
       # Tasks within a stage run concurrently.
       - tasks:

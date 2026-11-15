@@ -23,9 +23,11 @@ repository, opening credential files, or checking source paths. It exits with
 tries the user's XDG configuration location, then `/etc/cairn/config.yaml`.
 Selected invalid/unreadable files are errors; files are never merged.
 
-Scheduling is not implemented yet. Cron is checked only
-as a nonempty string until scheduling syntax is defined. Standalone operations,
-help, and version never load configuration.
+Checking also validates five-field cron schedules, supported calendar aliases,
+and optional workflow timezones. See the [schedule contract](../docs/configuration.md#schedules)
+for the dialect and clock behavior. The agent is not implemented yet; schedules
+do not run automatically. Standalone operations, help, and version never load
+configuration.
 
 ## Shell completion
 

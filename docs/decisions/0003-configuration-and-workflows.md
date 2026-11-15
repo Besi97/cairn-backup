@@ -56,8 +56,8 @@ Schema validation catches structural errors without Borg or access to secret
 files. Runtime validation must also check references and operation semantics;
 standard JSON Schema cannot derive repository references from another map's keys.
 
-Loading and validation belong to #53, execution and the manual workflow command
-to #54, and scheduling and overlap enforcement to #55. Those features are not
-implemented by this decision. Cron dialect, timezone, missed-run, and retry
-policies remain open for #55. Workflow overlap coordination is separate from
-Borg's authoritative repository locking.
+Loading and validation belong to #53 and execution and the manual workflow
+command to #54. Schedule syntax and policies are defined in
+[ADR 0004](0004-schedule-contract.md) (#55); the agent follows in #80 and overlap
+enforcement in #81. Workflow overlap coordination is separate from Borg's
+authoritative repository locking.

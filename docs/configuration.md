@@ -2,8 +2,8 @@
 
 This is the version 1 configuration contract agreed in
 [#52](https://github.com/Besi97/cairn-backup/issues/52). Configuration loading and
-checking and manual workflow execution are implemented; scheduling follows in
-#55. Standalone `backup`, `prune`, and `compact` remain
+checking and manual workflow execution are implemented; the agent follows in
+#80 and overlap protection in #81. Standalone `backup`, `prune`, and `compact` remain
 usable without configuration or a scheduler and do not discover config files.
 
 - [Example YAML](../cli/examples/config.yaml)
@@ -29,8 +29,8 @@ memory when the configuration itself is read, but never appear in diagnostics.
 Errors identify field paths (JSON Pointer notation) and source positions where
 available, without quoting rejected values or YAML snippets.
 
-Cron is currently validated only as a nonempty string; syntax and scheduling
-semantics remain deferred to #55.
+Checking also validates cron syntax/ranges and timezone names offline.
+Schedules do not run automatically until the agent is implemented.
 
 ## Editor validation
 
@@ -102,7 +102,8 @@ defaults-map, or environment-interpolation mechanisms in version 1.
 
 A workflow has:
 
-- Optional nonempty `cron`: omit for manual-only execution.
+- Optional `cron`: a five-field expression or supported alias; omit for manual-only execution.
+- Optional `timezone`: an IANA timezone name or `UTC`; omit for the agent process local timezone.
 - Required `stages`: a nonempty ordered list of objects.
 
 Each stage has only `tasks`, a nonempty list of task objects. Stages and tasks
@@ -160,8 +161,62 @@ active tasks, waits for owned subprocess cleanup, and exits `130`/`143`.
 Warnings/failures do not cancel siblings or trigger retries.
 
 Cross-process workflow overlap protection is **not implemented yet**; it follows
-in #55. For now, simultaneous manual invocations can run the same workflow.
+in #81. For now, simultaneous manual invocations can run the same workflow.
 Borg's repository/cache locks remain authoritative.
+
+### Schedules
+
+The schedule contract is defined now; automatic dispatch through
+`cairn agent run` follows in #80.
+
+`cron` has five whitespace-separated fields:
+
+```text
+minute  hour  day-of-month  month  day-of-week
+0–59    0–23  1–31          1–12   0–6 (Sunday = 0)
+```
+
+Fields support `*`, comma-separated lists, inclusive ascending ranges, and
+positive steps, for example `*/15`, `8-18/2`, or `5/20` (from 5 through the field
+maximum, stepping by 20). Month and weekday names use case-insensitive
+three-letter English abbreviations (`JAN`–`DEC`, `SUN`–`SAT`). Sunday is not `7`.
+When both day-of-month and day-of-week are restricted, either can match;
+a wildcard day field leaves the other field to determine matching days.
+
+Supported aliases are:
+
+| Alias | Equivalent |
+| --- | --- |
+| `@hourly` | `0 * * * *` |
+| `@daily`, `@midnight` | `0 0 * * *` |
+| `@weekly` | `0 0 * * 0` |
+| `@monthly` | `0 0 1 * *` |
+| `@yearly`, `@annually` | `0 0 1 1 *` |
+
+Aliases are lowercase. Seconds, `@every`, `@reboot`, `?`, Quartz extensions,
+and inline `TZ=`/`CRON_TZ=` directives are not supported. Leading/trailing
+whitespace is ignored. Syntax and field ranges are validated, not calendar
+feasibility: `0 0 30 2 *` is valid syntax but never runs. The parser's next-time
+search returns no occurrence if none is found within five years.
+
+Set `timezone: Europe/Berlin`, for example, to make scheduling independent of the
+agent's local timezone. Named zone data is embedded for minimal installations.
+Omitting the field uses the process local timezone (including its `TZ`
+environment); an explicit empty value or `Local` is invalid. A timezone may be
+set on a manual-only workflow and is still validated, but has no scheduling
+effect until `cron` is added. It never changes Borg retention's timezone or
+Cairn's UTC archive-prefix timestamps.
+
+The agent will apply these dispatch rules:
+
+- A nonexistent local time during a DST jump is skipped. A repeated local time
+  may run twice, once at each real instant, subject to overlap protection.
+- Start with the next future occurrence: no startup run or catch-up backlog.
+  If the agent wakes after an occurrence's minute has expired, skip that
+  occurrence. Do not replay an already-dispatched real occurrence after a
+  backward clock adjustment.
+- Do not retry warnings, failures, or overlaps automatically; later cron
+  occurrences remain independent attempts.
 
 ### Backup task
 
@@ -266,7 +321,7 @@ bounded nesting/expansion (100 levels and 100,000 visited nodes).
 Validation checks repository-only locations, statically invalid archive names,
 SSH-only identity settings, and integer ranges supported on both Linux targets
 (signed 64-bit). Borg retains expanded-name validation, placeholder expansion,
-and collision handling. Cron expressions will be checked once defined in #55.
+and collision handling. The loader also checks cron syntax/ranges and timezone names.
 The published schema is embedded in the binary, so structural validation is
 offline and uses the same contract as editors. Standard JSON Schema cannot derive
 valid repository names from this document's dynamic map or check filesystem access.
@@ -276,7 +331,7 @@ Configuration checking must not execute Borg or read secret files unnecessarily.
 Execution-time repository, credential, and filesystem access checks remain
 separate. Schema tests do not substitute for runtime validation.
 
-## Workflow overlap (implementation in #55)
+## Workflow overlap (implementation in #81)
 
 Prevent concurrent runs of the same workflow across scheduler and manual CLI
 processes for the same OS user on the same host. Identity is the canonical
@@ -290,6 +345,6 @@ queue or retry automatically because of overlap. Hold ownership through executio
 and cancellation cleanup, accounting for Borg children surviving a Cairn crash.
 This is not a distributed or cross-user lock and is not a repository lock.
 
-Cron dialect, timezone, missed occurrences, and general retry policies are
-deliberately deferred to #55. The schema accepts nonempty cron strings without
-claiming to validate those semantics.
+The schema checks schedule field types and nonempty strings. Full cron and
+timezone validation belongs to the loader; editor/schema success alone is not
+enough.
