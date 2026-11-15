@@ -2,8 +2,8 @@
 
 This is the version 1 configuration contract agreed in
 [#52](https://github.com/Besi97/cairn-backup/issues/52). Configuration loading and
-checking, manual workflow execution, and overlap protection are implemented;
-the agent follows in #80. Standalone `backup`, `prune`, and `compact` remain
+checking, manual and scheduled workflow execution, and overlap protection are
+implemented. Standalone `backup`, `prune`, and `compact` remain
 usable without configuration or a scheduler and do not discover config files.
 
 - [Example YAML](../cli/examples/config.yaml)
@@ -30,7 +30,7 @@ Errors identify field paths (JSON Pointer notation) and source positions where
 available, without quoting rejected values or YAML snippets.
 
 Checking also validates cron syntax/ranges and timezone names offline.
-Schedules do not run automatically until the agent is implemented.
+Schedules run only while the foreground agent is active.
 
 ## Editor validation
 
@@ -166,8 +166,24 @@ regardless of cron or timezone. Borg's repository/cache locks remain authoritati
 
 ### Schedules
 
-The schedule contract is defined now; automatic dispatch through
-`cairn agent run` follows in #80.
+Start the foreground scheduler with `cairn agent run [--config PATH]`. It uses
+the same configuration selection rules as manual workflows and loads one
+validated snapshot at startup. Restart to apply changes; no reload/watch or
+background daemon mode is provided. At least one workflow must have `cron`;
+otherwise startup fails with exit `3`. A syntactically valid but impossible
+calendar schedule still counts as scheduled and remains idle.
+
+One agent lock covers the canonical config path. A second agent fails immediately
+with exit `2`; manual runs do not acquire that lock and may run while the agent
+is active. Different workflows can execute concurrently. Each occurrence uses
+the shared staged executor and workflow locks, with no repository queue.
+
+Agent lifecycle and workflow summaries are timestamped in UTC on stderr,
+alongside labelled Borg diagnostics; task outcomes remain on stdout. Warnings
+and failures stop later stages of that run but do not terminate the agent.
+Output failures stop dispatch, cancel active work, and exit `2`. SIGINT/SIGTERM
+stop dispatching and wait for active-work cancellation cleanup before returning
+`130`/`143` and releasing the agent lock. There is no persistent run history.
 
 `cron` has five whitespace-separated fields:
 
@@ -207,7 +223,7 @@ set on a manual-only workflow and is still validated, but has no scheduling
 effect until `cron` is added. It never changes Borg retention's timezone or
 Cairn's UTC archive-prefix timestamps.
 
-The agent will apply these dispatch rules:
+The agent applies these dispatch rules:
 
 - A nonexistent local time during a DST jump is skipped. A repeated local time
   may run twice, once at each real instant, subject to overlap protection.
@@ -215,8 +231,15 @@ The agent will apply these dispatch rules:
   If the agent wakes after an occurrence's minute has expired, skip that
   occurrence. Do not replay an already-dispatched real occurrence after a
   backward clock adjustment.
+- Use one-second waits to recheck wall time rather than relying on a long
+  monotonic timer. Missed occurrences are skipped in bulk, not queued.
+  A zero next-time search result is revisited daily so a future occurrence can
+  enter the parser's bounded search horizon.
 - Do not retry warnings, failures, or overlaps automatically; later cron
   occurrences remain independent attempts.
+
+Backup archive-prefix timestamps use actual dispatch time in UTC, not the
+scheduled minute or agent startup time.
 
 ### Backup task
 
@@ -340,8 +363,8 @@ of a configuration are independent. Different workflows may run concurrently,
 including those sharing a repository; Borg locking remains authoritative.
 
 Use a nonblocking advisory workflow lock. A manual duplicate reports an
-already-running error; a scheduled duplicate will be skipped and reported by
-the agent (#80). Do not queue or retry automatically because of overlap. Hold
+already-running error; a scheduled duplicate is skipped and reported by
+the agent. Do not queue or retry automatically because of overlap. Hold
 ownership through execution and cancellation cleanup, accounting for Borg
 children surviving a Cairn crash.
 This is not a distributed or cross-user lock and is not a repository lock.
@@ -363,7 +386,7 @@ does not mean a run is active. There are no PID files to clear or stale locks to
 break: the kernel releases the advisory lock when its final descriptor closes.
 
 Workflow locks are inherited by Borg, including compatibility probes, so killing
-only Cairn does not permit a duplicate while Borg survives. The future agent
+only Cairn does not permit a duplicate while Borg survives. The agent
 holds an additional config-level lock, inherited by its Borg children as well,
 preventing a replacement agent while that work is still active. Manual runs do
 not acquire the agent lock. These locks do not track remote SSH server lifetime
