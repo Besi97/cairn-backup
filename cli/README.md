@@ -6,66 +6,6 @@ scheduler. See the [installation guide](../docs/installation.md) and optional
 [systemd setup](../docs/systemd.md). Install stable Borg 1.x
 (at least 1.2.8) separately; SSH repositories also require OpenSSH.
 
-## Configuration
-
-The [configuration contract](../docs/configuration.md),
-[version 1 YAML validation schema](schema/config-v1.schema.json), and
-[example configuration](examples/config.yaml) define the agreed repository and
-workflow format.
-
-```sh
-cairn config check
-cairn config check --config ./config.yaml
-```
-
-Checking discovers and validates one file without executing Borg, contacting a
-repository, opening credential files, or checking source paths. It exits with
-`0` on success or `3` for invalid/missing configuration. Without `--config`, Cairn
-tries the user's XDG configuration location, then `/etc/cairn/config.yaml`.
-Selected invalid/unreadable files are errors; files are never merged.
-
-Checking also validates five-field cron schedules, supported calendar aliases,
-and optional workflow timezones. See the [schedule contract](../docs/configuration.md#schedules)
-for the dialect and clock behavior. Schedules run only while
-[`cairn agent run`](#scheduled-workflows) is active. Standalone operations, help,
-and version never load configuration.
-
-## Shell completion
-
-Cairn can generate completion scripts for Bash, Zsh, Fish, and PowerShell:
-
-```sh
-cairn completion bash
-cairn completion zsh
-cairn completion fish
-cairn completion powershell
-```
-
-Use `cairn completion SHELL --help` for setup instructions. Running the command
-without `--help` prints the completion script. Bash completion requires the
-`bash-completion` package. For PowerShell, add
-`cairn completion powershell | Out-String | Invoke-Expression` to your PowerShell
-profile. Completion is available wherever the Cairn binary runs.
-
-Completions include commands, flags, local paths for path-valued options and
-backup sources, and directories for `--source-root`. Relative backup source
-suggestions follow the selected `--source-root`. SSH-style repository values do
-not trigger local path suggestions. Archive names and patterns are treated as
-literal Borg inputs rather than filesystem paths.
-
-For `cairn workflow run`, Cairn reads and validates the selected configuration
-to suggest matching workflow names. It uses `--config` when supplied, otherwise
-the normal user/system discovery order. Put `--config` before the workflow name
-when completing from a specific file:
-
-```sh
-cairn workflow run --config ./config.yaml <TAB>
-```
-
-Workflow completion does not execute Borg or access repositories, credential
-files, or source paths. Missing or invalid configuration produces no workflow
-suggestions; use `cairn config check` to see configuration diagnostics.
-
 ## Backup
 
 Back up to an existing local or SSH repository without configuration or a running
@@ -164,6 +104,62 @@ choices after archives or time have changed.
 Prune never invokes compact. Deleting archives does not reclaim eligible
 repository disk space until a separate compaction operation.
 
+## Compact
+
+Reclaim eligible space across an existing local or SSH repository without
+configuration, a scheduler, or a preceding backup or prune.
+
+```sh
+cairn compact --repository /backups/repo
+
+cairn compact --repository ssh://user@backup-host/./repo \
+  --identity-file ~/.ssh/backup --lock-wait 60
+```
+
+Require an explicit nonempty `--repository`; there is no `BORG_REPO` fallback.
+Compaction applies to the **whole repository**, not an archive prefix or job.
+It does not delete archives, initialize repositories, or invoke backup or prune.
+There is no confirmation prompt or `--yes` flag.
+
+Borg retains its default compaction threshold (10%). Native progress and verbose
+space-reclamation estimates go to stderr; success does not promise that any space
+was eligible to reclaim. Cairn does not expose threshold tuning, legacy commit
+cleanup, or arbitrary Borg options.
+
+Compaction does not need the repository encryption key or passphrase, even for
+encrypted repositories. SSH authentication and host verification still apply.
+The optional `--passphrase-file` remains available for interface consistency;
+explicitly supplied files and inherited credential descriptors receive the same
+validation as other operations. Relative repository and access-file paths resolve
+from Cairn's invocation directory.
+
+`--dry-run` is rejected: Borg 1.2.8 has no compaction preview, and Borg 1.4.5's
+option merely does nothing rather than providing a useful preview.
+
+## Configuration
+
+The [configuration contract](../docs/configuration.md),
+[version 1 YAML validation schema](schema/config-v1.schema.json), and
+[example configuration](examples/config.yaml) define the agreed repository and
+workflow format.
+
+```sh
+cairn config check
+cairn config check --config ./config.yaml
+```
+
+Checking discovers and validates one file without executing Borg, contacting a
+repository, opening credential files, or checking source paths. It exits with
+`0` on success or `3` for invalid/missing configuration. Without `--config`, Cairn
+tries the user's XDG configuration location, then `/etc/cairn/config.yaml`.
+Selected invalid/unreadable files are errors; files are never merged.
+
+Checking also validates five-field cron schedules, supported calendar aliases,
+and optional workflow timezones. See the [schedule contract](../docs/configuration.md#schedules)
+for the dialect and clock behavior. Schedules run only while
+[`cairn agent run`](#scheduled-workflows) is active. Standalone operations, help,
+and version never load configuration.
+
 ## Configured workflows
 
 List configured workflow names in lexicographical order, then run one immediately
@@ -239,37 +235,48 @@ Exit codes: `3` for invalid arguments/configuration or no scheduled workflows,
 failure), and `130`/`143` for SIGINT/SIGTERM. Individual workflow warnings/failures
 are reported without terminating the process.
 
-## Compact
+## Recovery without Cairn
 
-Reclaim eligible space across an existing local or SSH repository without
-configuration, a scheduler, or a preceding backup or prune.
+Cairn creates ordinary Borg 1.x archives. Use native Borg to list, inspect, and
+restore them even if Cairn or its configuration is unavailable. Follow the
+[recovery guide](../docs/recovery.md) to restore into a separate directory,
+including passphrase and SSH setup.
+
+## Shell completion
+
+Cairn can generate completion scripts for Bash, Zsh, Fish, and PowerShell:
 
 ```sh
-cairn compact --repository /backups/repo
-
-cairn compact --repository ssh://user@backup-host/./repo \
-  --identity-file ~/.ssh/backup --lock-wait 60
+cairn completion bash
+cairn completion zsh
+cairn completion fish
+cairn completion powershell
 ```
 
-Require an explicit nonempty `--repository`; there is no `BORG_REPO` fallback.
-Compaction applies to the **whole repository**, not an archive prefix or job.
-It does not delete archives, initialize repositories, or invoke backup or prune.
-There is no confirmation prompt or `--yes` flag.
+Use `cairn completion SHELL --help` for setup instructions. Running the command
+without `--help` prints the completion script. Bash completion requires the
+`bash-completion` package. For PowerShell, add
+`cairn completion powershell | Out-String | Invoke-Expression` to your PowerShell
+profile. Completion is available wherever the Cairn binary runs.
 
-Borg retains its default compaction threshold (10%). Native progress and verbose
-space-reclamation estimates go to stderr; success does not promise that any space
-was eligible to reclaim. Cairn does not expose threshold tuning, legacy commit
-cleanup, or arbitrary Borg options.
+Completions include commands, flags, local paths for path-valued options and
+backup sources, and directories for `--source-root`. Relative backup source
+suggestions follow the selected `--source-root`. SSH-style repository values do
+not trigger local path suggestions. Archive names and patterns are treated as
+literal Borg inputs rather than filesystem paths.
 
-Compaction does not need the repository encryption key or passphrase, even for
-encrypted repositories. SSH authentication and host verification still apply.
-The optional `--passphrase-file` remains available for interface consistency;
-explicitly supplied files and inherited credential descriptors receive the same
-validation as other operations. Relative repository and access-file paths resolve
-from Cairn's invocation directory.
+For `cairn workflow run`, Cairn reads and validates the selected configuration
+to suggest matching workflow names. It uses `--config` when supplied, otherwise
+the normal user/system discovery order. Put `--config` before the workflow name
+when completing from a specific file:
 
-`--dry-run` is rejected: Borg 1.2.8 has no compaction preview, and Borg 1.4.5's
-option merely does nothing rather than providing a useful preview.
+```sh
+cairn workflow run --config ./config.yaml <TAB>
+```
+
+Workflow completion does not execute Borg or access repositories, credential
+files, or source paths. Missing or invalid configuration produces no workflow
+suggestions; use `cairn config check` to see configuration diagnostics.
 
 ## Output and exit codes
 

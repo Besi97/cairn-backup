@@ -18,7 +18,7 @@ repositories:
 
 workflows:
   nightly:
-    # Validated now; automatic scheduling follows in #80.
+    # Runs automatically while `cairn agent run` is active.
     cron: "0 2 * * *"
     # Omit timezone to use the agent process local timezone.
     timezone: Europe/Berlin
