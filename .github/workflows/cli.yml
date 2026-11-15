@@ -23,6 +23,7 @@ jobs:
       - run: go mod download
       - run: make check
       - run: make cross-build
+      - run: make release-check
       - name: Check module files are tidy
         run: |
           go mod tidy

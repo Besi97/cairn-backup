@@ -3,3 +3,4 @@
 
 # Local CLI build output
 /cli/bin/
+/cli/dist/
