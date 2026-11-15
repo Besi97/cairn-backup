@@ -2,8 +2,8 @@
 
 This is the version 1 configuration contract agreed in
 [#52](https://github.com/Besi97/cairn-backup/issues/52). Configuration loading and
-checking and manual workflow execution are implemented; the agent follows in
-#80 and overlap protection in #81. Standalone `backup`, `prune`, and `compact` remain
+checking, manual workflow execution, and overlap protection are implemented;
+the agent follows in #80. Standalone `backup`, `prune`, and `compact` remain
 usable without configuration or a scheduler and do not discover config files.
 
 - [Example YAML](../cli/examples/config.yaml)
@@ -160,9 +160,9 @@ its signal retained in diagnostics. SIGINT/SIGTERM cancellation of Cairn stops
 active tasks, waits for owned subprocess cleanup, and exits `130`/`143`.
 Warnings/failures do not cancel siblings or trigger retries.
 
-Cross-process workflow overlap protection is **not implemented yet**; it follows
-in #81. For now, simultaneous manual invocations can run the same workflow.
-Borg's repository/cache locks remain authoritative.
+Cross-process workflow overlap protection rejects a duplicate manual invocation
+with exit code `2`, without waiting or starting Borg. Manual runs start immediately
+regardless of cron or timezone. Borg's repository/cache locks remain authoritative.
 
 ### Schedules
 
@@ -331,7 +331,7 @@ Configuration checking must not execute Borg or read secret files unnecessarily.
 Execution-time repository, credential, and filesystem access checks remain
 separate. Schema tests do not substitute for runtime validation.
 
-## Workflow overlap (implementation in #81)
+## Workflow overlap
 
 Prevent concurrent runs of the same workflow across scheduler and manual CLI
 processes for the same OS user on the same host. Identity is the canonical
@@ -340,10 +340,34 @@ of a configuration are independent. Different workflows may run concurrently,
 including those sharing a repository; Borg locking remains authoritative.
 
 Use a nonblocking advisory workflow lock. A manual duplicate reports an
-already-running error; a scheduled duplicate is skipped and reported. Do not
-queue or retry automatically because of overlap. Hold ownership through execution
-and cancellation cleanup, accounting for Borg children surviving a Cairn crash.
+already-running error; a scheduled duplicate will be skipped and reported by
+the agent (#80). Do not queue or retry automatically because of overlap. Hold
+ownership through execution and cancellation cleanup, accounting for Borg
+children surviving a Cairn crash.
 This is not a distributed or cross-user lock and is not a repository lock.
+
+Lock files live under `$XDG_RUNTIME_DIR/cairn/locks` when the runtime directory
+is absolute, owned by the executing user, and mode `0700`. Otherwise Cairn uses
+`$XDG_STATE_HOME/cairn/locks`, or `~/.local/state/cairn/locks` if the state setting
+is absent or relative. Cairn's directories must be private (`0700`) and its lock
+files must be user-owned regular files (`0600`), not symlinks or hardlinks.
+The state parent must be user-owned and not group/world writable.
+An unsafe existing Cairn directory or lock file is an execution error, not a
+reason to run without coordination.
+
+Use the same runtime/state environment for all invocations that should
+coordinate, including systemd services. Do not move, delete, or change permissions
+on lock directories/files while Cairn or its Borg children are active.
+Lock files have hashed identities and remain after release; their existence
+does not mean a run is active. There are no PID files to clear or stale locks to
+break: the kernel releases the advisory lock when its final descriptor closes.
+
+Workflow locks are inherited by Borg, including compatibility probes, so killing
+only Cairn does not permit a duplicate while Borg survives. The future agent
+holds an additional config-level lock, inherited by its Borg children as well,
+preventing a replacement agent while that work is still active. Manual runs do
+not acquire the agent lock. These locks do not track remote SSH server lifetime
+after the local Borg process exits.
 
 The schema checks schedule field types and nonempty strings. Full cron and
 timezone validation belongs to the loader; editor/schema success alone is not

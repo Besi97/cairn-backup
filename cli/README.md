@@ -193,7 +193,12 @@ supported. Standalone commands still never discover configuration.
 
 Exit codes: `0` success, `1` warnings, `2` execution failure, `3` invalid input;
 Cairn cancellation exits `130` (SIGINT) or `143` (SIGTERM).
-Scheduling and cross-process workflow overlap protection are not implemented yet.
+Manual workflows start immediately, regardless of schedule, and reject duplicate
+runs of the same workflow/config with exit code `2`. Locks remain held by Borg
+children that survive a Cairn crash. See
+[workflow overlap](../docs/configuration.md#workflow-overlap) for lock locations
+and the shared runtime/state environment required for coordination.
+Automatic scheduling is not implemented yet.
 See the [configuration contract](../docs/configuration.md) and
 [example configuration](examples/config.yaml).
 

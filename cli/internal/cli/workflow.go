@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
 	"github.com/Besi97/cairn-backup/cli/internal/config"
+	"github.com/Besi97/cairn-backup/cli/internal/runlock"
 	"github.com/Besi97/cairn-backup/cli/internal/workflow"
 	"github.com/spf13/cobra"
 )
@@ -42,7 +44,7 @@ func newWorkflowCommand() *cobra.Command {
 		Long: "Run stages in order, with concurrent tasks in each stage. Warnings and failures\n" +
 			"stop later stages after all siblings finish. Cancellation stops active tasks.\n" +
 			"Standalone operation flags do not override configured tasks.\n" +
-			"Cross-process workflow overlap protection is not implemented yet.",
+			"Schedules are ignored. An already-running workflow fails without waiting.",
 		Args: cobra.ExactArgs(1),
 		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
 			if len(args) != 0 {
@@ -69,9 +71,16 @@ func newWorkflowCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			identity, err := runlock.Config(selected.Path)
+			if err != nil {
+				return &exitError{code: exitFailure, err: err}
+			}
 			result, runErr := (workflow.Executor{
 				Stdout: cmd.OutOrStdout(), Stderr: cmd.ErrOrStderr(),
-			}).Run(cmd.Context(), plan)
+			}).RunLocked(cmd.Context(), identity, plan)
+			if errors.Is(runErr, runlock.ErrBusy) {
+				return &exitError{code: exitFailure, err: fmt.Errorf("workflow %q is already running", plan.Name)}
+			}
 			code, outcome := exitFailure, "failed"
 			switch result.Outcome {
 			case borg.Success:
