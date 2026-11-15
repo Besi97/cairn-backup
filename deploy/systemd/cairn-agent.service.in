@@ -12,7 +12,7 @@ Environment=@CAIRN_HOME_ENV@
 Environment=XDG_RUNTIME_DIR=
 Environment=@CAIRN_STATE_HOME_ENV@
 WorkingDirectory=/
-ExecStart=@CAIRN_BINARY@ agent run --config @CAIRN_CONFIG@
+ExecStart=:@CAIRN_BINARY@ agent run --config @CAIRN_CONFIG@
 Restart=on-failure
 RestartSec=30s
 RestartPreventExitStatus=3

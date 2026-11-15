@@ -38,6 +38,6 @@ release:
 	./scripts/package-release.sh "$(VERSION)" "$(or $(OUT_DIR),dist)"
 
 release-check:
-	@tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
+	@set -e; tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
 	  ./scripts/package-release.sh 0.0.0-test "$$tmp"; \
 	  ./scripts/test-release.sh "$$tmp" 0.0.0-test

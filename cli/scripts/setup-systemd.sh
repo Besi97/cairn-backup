@@ -84,6 +84,15 @@ done
   usage >&2
   exit 2
 }
+# Validate in the main shell, before command substitutions or any side effects.
+# A failure buried in a rendering substitution need not propagate to its caller.
+validate_value() {
+  case $1 in
+    *[[:cntrl:]]*) die "unit values cannot contain control characters" ;;
+  esac
+}
+validate_value "$config"
+validate_value "$binary"
 [[ $account =~ ^[a-z_][a-zA-Z0-9_.-]*\$?$ ]] || die "invalid account name"
 [[ $config == /* && -f $config && -r $config ]] || die "--config must name a readable absolute file"
 id "$account" >/dev/null 2>&1 || die "account does not exist: $account"
@@ -93,13 +102,13 @@ fi
 [[ $binary == /* && -x $binary && -f $binary ]] || die "provide --binary with an executable absolute path"
 binary=$(readlink -f -- "$binary")
 [[ -n $binary ]] || die "cannot resolve the Cairn binary"
+validate_value "$binary"
 
 passwd_entry=$(getent passwd "$account") || die "cannot look up account: $account"
 IFS=: read -r _ _ uid _ _ home _ <<<"$passwd_entry"
 [[ $uid =~ ^[0-9]+$ && $home == /* && -d $home ]] || die "account must have an existing absolute home directory"
 state_home=$home/.local/state
-command -v runuser >/dev/null 2>&1 || die "runuser is required"
-command -v systemd-analyze >/dev/null 2>&1 || die "systemd-analyze is required"
+validate_value "$home"
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 template=$script_dir/cairn-agent.service.in
@@ -114,51 +123,46 @@ if [[ $(id -u) == "$uid" ]]; then
     "$binary" config check --config "$config" >&2; then
     die "configuration check failed for account $account"
   fi
-elif ! runuser -u "$account" -- env HOME="$home" XDG_RUNTIME_DIR= XDG_STATE_HOME="$state_home" \
-  "$binary" config check --config "$config" >&2; then
-  die "configuration check failed for account $account"
+else
+  command -v runuser >/dev/null 2>&1 || die "runuser is required"
+  if ! runuser -u "$account" -- env HOME="$home" XDG_RUNTIME_DIR= XDG_STATE_HOME="$state_home" \
+    "$binary" config check --config "$config" >&2; then
+    die "configuration check failed for account $account"
+  fi
 fi
 
 quote_unit() {
   local value=$1
-  case $value in
-    *[[:cntrl:]]*) die "unit values cannot contain control characters" ;;
-  esac
   value=${value//\\/\\\\}
   value=${value//\"/\\\"}
   value=${value//%/%%}
   printf '"%s"' "$value"
 }
 
-quote_exec() {
-  local value=$1
-  case $value in
-    *[[:cntrl:]]*) die "unit values cannot contain control characters" ;;
-  esac
-  value=${value//\\/\\\\}
-  value=${value//\"/\\\"}
-  value=${value//%/%%}
-  value=${value//\$/\\x24}
-  printf '"%s"' "$value"
+# Each assignment propagates failure. Render exact template lines instead of
+# sed replacement expressions, so inserted values cannot become placeholders.
+home_env=$(quote_unit "HOME=$home") || die "cannot quote home"
+state_env=$(quote_unit "XDG_STATE_HOME=$state_home") || die "cannot quote state directory"
+binary_arg=$(quote_unit "$binary") || die "cannot quote binary"
+config_arg=$(quote_unit "$config") || die "cannot quote config"
+render_unit() {
+  local line
+  while IFS= read -r line || [[ -n $line ]]; do
+    case $line in
+      'User=@CAIRN_USER@') printf 'User=%s\n' "$account" || return ;;
+      'Environment=@CAIRN_HOME_ENV@') printf 'Environment=%s\n' "$home_env" || return ;;
+      'Environment=@CAIRN_STATE_HOME_ENV@') printf 'Environment=%s\n' "$state_env" || return ;;
+      'ExecStart=:@CAIRN_BINARY@ agent run --config @CAIRN_CONFIG@')
+        # ":" disables systemd's environment expansion, including ${HOME}.
+        printf 'ExecStart=:%s agent run --config %s\n' "$binary_arg" "$config_arg" || return
+        ;;
+      *) printf '%s\n' "$line" || return ;;
+    esac
+  done <"$template"
 }
-
-sed_value() {
-  printf '%s' "$1" | sed 's/[\\&|]/\\&/g'
-}
-
-unit_text=$(
-  sed \
-    -e "s|@CAIRN_USER@|$(sed_value "$account")|g" \
-    -e "s|@CAIRN_HOME_ENV@|$(sed_value "$(quote_unit "HOME=$home")")|g" \
-    -e "s|@CAIRN_STATE_HOME_ENV@|$(sed_value "$(quote_unit "XDG_STATE_HOME=$state_home")")|g" \
-    -e "s|@CAIRN_BINARY@|$(sed_value "$(quote_exec "$binary")")|g" \
-    -e "s|@CAIRN_CONFIG@|$(sed_value "$(quote_exec "$config")")|g" \
-    "$template"
-  printf '\001'
-)
-unit_text=${unit_text%$'\001'}
+unit_text=$(render_unit) || die "cannot render service unit"
 if [[ $print_unit == true ]]; then
-  printf '%s' "$unit_text"
+  printf '%s\n' "$unit_text"
   exit 0
 fi
 
@@ -168,14 +172,17 @@ unit_file=$unit_dir/cairn-agent.service
 [[ -d $unit_dir ]] || die "systemd unit directory not found: $unit_dir"
 [[ ! -e $unit_file && ! -L $unit_file ]] || die "$unit_file already exists; stop and remove it explicitly before reinstalling"
 command -v systemctl >/dev/null 2>&1 || die "systemctl is required"
+command -v systemd-analyze >/dev/null 2>&1 || die "systemd-analyze is required"
 
-temporary=$(mktemp "$unit_dir/.cairn-agent.service.XXXXXX")
-trap 'rm -f "$temporary"' EXIT
-printf '%s' "$unit_text" >"$temporary"
+staging=$(mktemp -d "$unit_dir/.cairn-setup.XXXXXX")
+trap 'rm -rf "$staging"' EXIT
+temporary=$staging/cairn-agent.service
+printf '%s\n' "$unit_text" >"$temporary"
 chmod 0644 "$temporary"
 chown root:root "$temporary"
+systemd-analyze verify "$temporary" || die "generated service unit failed verification"
 ln -- "$temporary" "$unit_file" || die "could not create $unit_file"
-rm -f "$temporary"
+rm -rf "$staging"
 trap - EXIT
 systemctl daemon-reload
 if [[ $enable_choice == yes ]]; then
@@ -185,5 +192,10 @@ if [[ $start_choice == yes ]]; then
   systemctl start cairn-agent.service
 fi
 echo "Installed $unit_file"
-[[ $enable_choice == yes ]] && echo "Enabled cairn-agent.service at boot"
-[[ $start_choice == yes ]] && echo "Started cairn-agent.service"
+if [[ $enable_choice == yes ]]; then
+  echo "Enabled cairn-agent.service at boot"
+fi
+if [[ $start_choice == yes ]]; then
+  echo "Started cairn-agent.service"
+fi
+exit 0

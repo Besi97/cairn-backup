@@ -34,6 +34,7 @@ Use `--no-enable` to leave the unit disabled or `--no-start` to leave it stopped
 one flag from each pair is required. The setup refuses an existing unit rather
 than silently replacing it. `--print-unit` validates the choices and prints the
 generated unit without installing it or contacting systemd.
+Installation also runs `systemd-analyze verify` before creating the unit.
 
 The unit runs Cairn directly as the selected account, works from `/`, and uses
 `/usr/local/bin/cairn` unless `--binary` is provided. It restarts unexpected
@@ -41,6 +42,11 @@ runtime failures with a delay and rate limit, but not invalid configuration
 (exit 3). SIGINT/SIGTERM-coded exits are treated as orderly shutdown. Stop
 requests allow up to five minutes for Cairn and Borg cleanup; after the timeout,
 systemd terminates the service's remaining processes.
+
+The `ExecStart` command disables systemd environment substitution and quotes
+literal paths, so names containing dollar signs or percent signs are preserved.
+Paths containing control characters (including tabs and newlines) are rejected
+before rendering or installing anything.
 
 ## Shared workflow locks
 

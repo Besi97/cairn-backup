@@ -29,6 +29,18 @@ jobs:
           go mod tidy
           git diff --exit-code -- go.mod go.sum
 
+  systemd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+      - name: Test installation and service lifecycle with systemd PID 1
+        run: tests/systemd/run.sh
+
   borg-integration:
     runs-on: ubuntu-latest
     strategy:
