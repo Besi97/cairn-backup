@@ -1,7 +1,7 @@
 # Lifecycle events
 
 `cli/internal/lifecycle` is the shared internal event API for configured manual
-and scheduled workflows and standalone backup, prune, and compact runs. It is
+and scheduled workflows and standalone backup, prune, compact, and check runs. It is
 not a JSON CLI mode or a persistent history store. Human output, Borg diagnostics,
 exit codes, and file-lock coordination retain their existing contracts.
 
@@ -29,10 +29,12 @@ Callback error text is never put in events or CLI output.
 - `Source` is `manual` or `scheduled`. `ScheduledAt` identifies the due instant
   for scheduled work; an expired-occurrence report can summarize several missed
   occurrences using the first expired instant. No missed-work queue is built.
-- `Workflow` is the configured name. `Operation` is backup, prune, or compact;
+- `Workflow` is the configured name. `Operation` is backup, prune, compact, or check;
   task events also carry a configured `Repository` alias. Standalone runs omit
   repository attribution rather than recording a possibly sensitive location.
   `Preview` distinguishes standalone dry runs.
+  Both check verification modes use `check` and the same normalized outcomes;
+  events do not contain verification flags or imply that warnings are clean checks.
 - `Stage` and `Task` are one-based configuration indexes. Zero means not
   applicable. Standalone operations have task 1 and no stage.
 - `Kind` distinguishes run, stage, and task starts, finishes, and skips.
@@ -53,7 +55,8 @@ workflow fails; only cancellation of Cairn interrupts the workflow.
 Standalone events begin after argument validation and operation preparation.
 Configured execution events begin at the workflow-lock attempt; preparation
 errors during scheduled dispatch are reported as failed runs. Configuration
-loading, help, listing, and invalid standalone inputs are not runs.
+loading, help, listing, TUI browsing/reload, and invalid standalone inputs are not
+runs. Reloading the read-only TUI never starts or changes workflow execution.
 
 Events intentionally omit errors, command arguments, environment variables,
 credentials, repository locations, source paths, archive names/selectors, rendered

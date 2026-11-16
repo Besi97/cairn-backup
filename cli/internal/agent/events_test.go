@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
+	"strings"
 	"testing"
 	"testing/synctest"
 
@@ -20,10 +22,15 @@ func (f eventRunner) Run(ctx context.Context, request borg.Request) (borg.Result
 
 func TestScheduledLifecycleAndSkips(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		a, clock := newTestAgent(t, definition("nightly", "* * * * *", "UTC"), instant("2026-01-01T00:00:00Z"))
+		definition := strings.Replace(definition("nightly", "* * * * *", "UTC"),
+			"type: compact", "type: check, verify_data: true", 1)
+		a, clock := newTestAgent(t, definition, instant("2026-01-01T00:00:00Z"))
 		release := make(chan struct{})
 		a.execute = func(ctx context.Context, plan workflow.Plan) (workflow.Result, error) {
-			return (workflow.Executor{Runner: eventRunner(func(context.Context, borg.Request) (borg.Result, error) {
+			return (workflow.Executor{Runner: eventRunner(func(_ context.Context, request borg.Request) (borg.Result, error) {
+				if request.Args[0] != "check" || !slices.Contains(request.Args, "--verify-data") {
+					t.Errorf("unexpected scheduled check request: %v", request.Args)
+				}
 				<-release
 				return borg.Result{Outcome: borg.Success}, nil
 			})}).Run(ctx, plan)
@@ -50,6 +57,9 @@ func TestScheduledLifecycleAndSkips(t *testing.T) {
 		for _, event := range events {
 			if event.Source != lifecycle.Scheduled || event.ScheduledAt.IsZero() || event.Workflow != "nightly" {
 				t.Fatalf("missing scheduled attribution: %+v", event)
+			}
+			if event.Task != 0 && (event.Operation != "check" || event.Repository != "local") {
+				t.Fatalf("missing check attribution: %+v", event)
 			}
 			switch event.Kind {
 			case lifecycle.RunStarted:
