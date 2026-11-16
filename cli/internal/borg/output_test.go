@@ -119,3 +119,27 @@ func TestRunnerStructuredProgressIsOptIn(t *testing.T) {
 		}
 	}
 }
+
+func TestSeparatedResultStdoutIsNeverDecodedOrFormatted(t *testing.T) {
+	req := request()
+	const data = "\r\x1b[2J{\"type\":\"progress_percent\",\"message\":\"result data\"}"
+	req.Env["FAKE_STDOUT"] = data
+	req.Env["FAKE_LOG_RECORDS"] = "{\"type\":\"progress_percent\",\"message\":\"real progress\"}\n"
+	var results, diagnostics bytes.Buffer
+	req.Stdout, req.Diagnostics = &results, &diagnostics
+	calls := 0
+	req.Progress = func(p Progress) error {
+		if p.Message != "real progress" {
+			t.Errorf("result data became progress: %+v", p)
+		}
+		calls++
+		return nil
+	}
+	result, err := (Runner{Executable: fakeBorg}).Run(t.Context(), req)
+	if err != nil || result.Outcome != Success || calls != 1 {
+		t.Fatalf("result=%+v error=%v progress calls=%d", result, err, calls)
+	}
+	if results.String() != "stdout diagnostic\n"+data || diagnostics.String() != "stderr diagnostic\n" {
+		t.Fatalf("stdout=%q diagnostics=%q", results.String(), diagnostics.String())
+	}
+}

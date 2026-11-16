@@ -95,6 +95,7 @@ func main() {
 		_ = file.Close()
 	}
 	fmt.Fprint(os.Stdout, "stdout diagnostic\n")
+	fmt.Fprint(os.Stdout, os.Getenv("FAKE_STDOUT"))
 	fmt.Fprint(os.Stderr, "stderr diagnostic\n")
 	if records := os.Getenv("FAKE_LOG_RECORDS"); records != "" {
 		fmt.Fprint(os.Stderr, records)
