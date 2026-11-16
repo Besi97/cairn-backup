@@ -13,6 +13,11 @@ Wrap the invocation context with `lifecycle.WithObserver(ctx, observer)`.
 `Executor.Run` primitive emits the same events for tests and internal callers.
 No observer means no delivery, without changing execution.
 
+`lifecycle.WithAdditionalObserver(ctx, observer)` adds a consumer without replacing
+existing observers. Every consumer receives the same event even if another fails.
+`lifecycle.Err` on the returned context includes failures from existing observers;
+`WithObserver` still replaces observers when that is explicitly intended.
+
 Callbacks are synchronous and serialized across runs sharing the observer.
 They must return promptly and must not emit recursively. A failed callback does
 not cancel work, alter outcomes,
