@@ -40,6 +40,10 @@ Callback error text is never put in events or CLI output.
   `Preview` distinguishes standalone dry runs.
   Both check verification modes use `check` and the same normalized outcomes;
   events do not contain verification flags or imply that warnings are clean checks.
+- `ConfigID` is the opaque canonical-configuration digest from
+  `runlock.Identity.Digest()`, captured at configured execution entry points.
+  Scheduled skips and preparation failures carry the same identity. Standalone
+  operations omit it; configuration paths and contents are never event fields.
 - `Stage` and `Task` are one-based configuration indexes. Zero means not
   applicable. Standalone operations have task 1 and no stage.
 - `Kind` distinguishes run, stage, and task starts, finishes, and skips.
@@ -67,3 +71,7 @@ Events intentionally omit errors, command arguments, environment variables,
 credentials, repository locations, source paths, archive names/selectors, rendered
 scope/status text, and Borg output. Consumers must keep diagnostics separate and
 must not reconstruct events by parsing human output.
+
+CLI invocations also attach a lazy [local history](run-history.md) observer.
+Library callers can opt into `history.Store.Observe`; persistence is not built
+into lifecycle emission or execution locks.

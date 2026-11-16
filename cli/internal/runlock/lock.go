@@ -19,6 +19,15 @@ var ErrBusy = errors.New("already running")
 // Resolving identity must not change the selected config's relative-path base.
 type Identity struct{ path string }
 
+// Digest identifies the canonical configuration without exposing its path.
+// It is attribution, not proof that any execution lock is held.
+func (i Identity) Digest() string {
+	if i.path == "" {
+		return ""
+	}
+	return fmt.Sprintf("%x", sha256.Sum256([]byte("cairn-config-v1\x00"+i.path)))
+}
+
 func Config(path string) (Identity, error) {
 	absolute, err := filepath.Abs(path)
 	if err != nil {

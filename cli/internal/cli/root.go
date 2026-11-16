@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"sync"
 
 	"github.com/Besi97/cairn-backup/cli/internal/cancellation"
 	"github.com/Besi97/cairn-backup/cli/internal/lifecycle"
@@ -38,6 +40,20 @@ func (e *exitError) Unwrap() error { return e.err }
 
 // Run executes one invocation with isolated arguments and output streams.
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version string) int {
+	// Keep terminal files visible to detection; serialize non-file test/embedded
+	// streams against history warnings during concurrent workflow diagnostics.
+	var outputMu sync.Mutex
+	if _, ok := stdout.(*os.File); !ok {
+		stdout = &invocationWriter{mu: &outputMu, writer: stdout}
+	}
+	if _, ok := stderr.(*os.File); !ok {
+		stderr = &invocationWriter{mu: &outputMu, writer: stderr}
+	}
+	history := &historyRecorder{warn: func() {
+		fmt.Fprintln(stderr, "Warning: local run history unavailable; records may be incomplete. Operation outcomes are unchanged.")
+	}}
+	defer history.close()
+	ctx = lifecycle.WithAdditionalObserver(ctx, history.observe)
 	defer func() {
 		if lifecycle.Err(ctx) != nil {
 			fmt.Fprintln(stderr, "Warning: lifecycle event delivery failed; operation outcomes are unchanged.")
@@ -68,6 +84,17 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version s
 		return exitInvalidInput
 	}
 	return exitSuccess
+}
+
+type invocationWriter struct {
+	mu     *sync.Mutex
+	writer io.Writer
+}
+
+func (w *invocationWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.writer.Write(p)
 }
 
 func newRootCommand(version string) *cobra.Command {

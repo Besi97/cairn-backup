@@ -6,6 +6,14 @@ scheduler. See the [installation guide](../docs/installation.md) and optional
 [systemd setup](../docs/systemd.md). Install stable Borg 1.x
 (at least 1.2.8) separately; SSH repositories also require OpenSSH.
 
+## Local run history
+
+Run events retain the latest 100 small summaries under
+`$XDG_STATE_HOME/cairn/history` (default `~/.local/state/cairn/history`).
+History contains no Borg logs or credentials, and storage failures warn without
+changing operation outcomes. Missing terminal events remain incomplete, not
+proof of running or failed work. See [history limits and safety](../docs/run-history.md).
+
 ## Terminal interface
 
 Run `cairn` or `cairn tui` to open the read-only terminal interface:

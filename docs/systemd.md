@@ -81,10 +81,12 @@ sudo systemctl stop cairn-agent.service
 ```
 
 Agent lifecycle and workflow summaries are written to stderr; task outcomes are
-written to stdout. systemd sends both to the journal. Cairn does not persist run
-history, and journal retention is controlled by the host. An active service only
-means the agent process is running; inspect the journal to determine whether
-backups are succeeding.
+written to stdout. systemd sends both to the journal; journal retention is
+controlled by the host. Cairn also keeps the latest 100 structured
+[local run summaries](run-history.md) in the account's state directory, without
+Borg logs. History storage failures warn without stopping backups. An active
+service only means the agent process is running; inspect the journal to determine
+whether backups are succeeding.
 
 The agent loads configuration once at startup. Restart it to apply changes.
 After editing the service account, config path, or unit template, stop and

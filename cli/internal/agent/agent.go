@@ -74,6 +74,7 @@ func (a *Agent) Run(ctx context.Context, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	ctx = lifecycle.WithConfigID(ctx, identity.Digest())
 	store, err := runlock.Open()
 	if err != nil {
 		return err
