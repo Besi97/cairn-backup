@@ -50,6 +50,7 @@ type Task struct {
 	Sources       []string `json:"sources"`
 	Exclude       []string `json:"exclude"`
 	LockWait      *int     `json:"lock_wait"`
+	VerifyData    bool     `json:"verify_data"`
 	KeepWithin    string   `json:"keep_within"`
 	KeepSecondly  int      `json:"keep_secondly"`
 	KeepMinutely  int      `json:"keep_minutely"`

@@ -193,7 +193,7 @@ var knownFields = map[string]bool{
 	"archive_prefix": true, "archive_name": true, "source_root": true, "sources": true,
 	"exclude": true, "lock_wait": true, "keep_within": true, "keep_secondly": true,
 	"keep_minutely": true, "keep_hourly": true, "keep_daily": true, "keep_weekly": true,
-	"keep_monthly": true, "keep_yearly": true,
+	"keep_monthly": true, "keep_yearly": true, "verify_data": true,
 }
 
 func at(doc *yaml.Node, fields []string) *yaml.Node {

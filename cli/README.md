@@ -219,9 +219,14 @@ Stages run in order; tasks within each stage run concurrently. Warnings or
 failures stop subsequent stages only after all siblings finish. Cancellation
 stops active operations and waits for subprocess cleanup.
 
-Workflows reuse the standalone backup, prune, and compact operations. Their
+Workflows reuse the standalone backup, prune, compact, and check operations. Their
 fields cannot be overridden with standalone flags, and workflow dry-run is not
 supported. Standalone commands still never discover configuration.
+
+Use `type: check` for whole-repository consistency and all archive metadata checks,
+optionally with `verify_data: true` for cryptographic file-content verification.
+Checks never request repair. Schedule them with workflow `cron`, as shown in the
+[example configuration](examples/config.yaml).
 
 Exit codes: `0` success, `1` warnings, `2` execution failure, `3` invalid input;
 Cairn cancellation exits `130` (SIGINT) or `143` (SIGTERM).

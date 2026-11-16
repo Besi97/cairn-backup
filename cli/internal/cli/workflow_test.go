@@ -89,6 +89,48 @@ func TestWorkflowCLI(t *testing.T) {
 	}
 }
 
+func TestWorkflowCheckOutcomes(t *testing.T) {
+	for _, verify := range []bool{false, true} {
+		for _, tt := range []struct {
+			exit, summary string
+			code          int
+		}{
+			{"0", "completed.", 0},
+			{"1", "completed with warnings; 1 later stage(s) not started", 1},
+			{"100", "completed with warnings; 1 later stage(s) not started", 1},
+			{"2", "failed; 1 later stage(s) not started", 2},
+			{"137", "failed; 1 later stage(s) not started", 2},
+		} {
+			t.Run(strconv.FormatBool(verify)+"/"+tt.exit, func(t *testing.T) {
+				fakeBorgEnvironment(t)
+				text := `version: 1
+repositories:
+  local: {location: ./repo}
+workflows:
+  manual:
+    stages:
+      - tasks: [{type: check, repository: local, lock_wait: 0, verify_data: ` + strconv.FormatBool(verify) + `}]
+      - tasks: [{type: compact, repository: local}]
+`
+				path := writeWorkflowConfig(t, text)
+				t.Setenv("FAKE_EXIT", tt.exit)
+				var stdout, stderr bytes.Buffer
+				code := Run(t.Context(), []string{"workflow", "run", "manual", "--config", path}, &stdout, &stderr, "test")
+				if code != tt.code || !strings.Contains(stdout.String(), `Workflow "manual" `+tt.summary) {
+					t.Fatalf("code=%d out=%s err=%s", code, &stdout, &stderr)
+				}
+				label := `[workflow "manual" stage 1 task 1 check repository "local"] `
+				if !strings.Contains(stdout.String(), label) || !strings.Contains(stderr.String(), label+"whole repository consistency") {
+					t.Fatalf("missing attributed check output: %s\n%s", &stdout, &stderr)
+				}
+				if tt.code != 0 && strings.Contains(stdout.String()+stderr.String(), "task 1 compact") {
+					t.Fatal("later stage started after check warning/failure")
+				}
+			})
+		}
+	}
+}
+
 func TestWorkflowDiscoveryAndInvalidInput(t *testing.T) {
 	fakeBorgEnvironment(t)
 	path := writeWorkflowConfig(t, workflowConfig)

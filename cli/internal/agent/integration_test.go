@@ -145,6 +145,8 @@ func TestRealBorgScheduledWorkflow(t *testing.T) {
       - tasks: [{type: backup, repository: local, archive_prefix: docs, sources: [payload]}]
       - tasks: [{type: prune, repository: local, archive_prefix: docs, keep_daily: 1}]
       - tasks: [{type: compact, repository: local}]
+      - tasks: [{type: check, repository: local}]
+      - tasks: [{type: check, repository: local, verify_data: true}]
 `, instant("2026-01-01T00:00:00Z"))
 	base := a.selected.Directory
 	repository := filepath.Join(base, "repo")
@@ -185,6 +187,11 @@ func TestRealBorgScheduledWorkflow(t *testing.T) {
 	}
 	if !strings.Contains(output.text(), "reclaiming eligible space") {
 		t.Fatal("compact stage did not run:", output.text())
+	}
+	for _, text := range []string{"stage 4 task 1 check", "stage 5 task 1 check", "Starting repository check", "Starting archive consistency check"} {
+		if !strings.Contains(output.text(), text) {
+			t.Errorf("missing scheduled check diagnostics %q:\n%s", text, output.text())
+		}
 	}
 }
 
@@ -227,11 +234,56 @@ func holdRealRepository(t *testing.T, binary, repository string) {
 	}
 }
 
+func TestRealBorgScheduledCheckDamage(t *testing.T) {
+	binary := realBorg(t)
+	a, clock := newTestAgent(t, `  integrity:
+    cron: "* * * * *"
+    stages:
+      - tasks: [{type: check, repository: local}]
+      - tasks: [{type: compact, repository: local}]
+`, instant("2026-01-01T00:00:00Z"))
+	repository := filepath.Join(a.selected.Directory, "repo")
+	borgCommand(t, binary, "init", "--encryption=none", repository)
+	segments, err := filepath.Glob(filepath.Join(repository, "data", "*", "*"))
+	if err != nil || len(segments) == 0 {
+		t.Fatalf("repository segments = %v: %v", segments, err)
+	}
+	segment := segments[0]
+	damaged, err := os.ReadFile(segment)
+	if err != nil || len(damaged) == 0 {
+		t.Fatalf("read segment: %v", err)
+	}
+	damaged[0] ^= 0xff
+	if err := os.WriteFile(segment, damaged, 0600); err != nil {
+		t.Fatal(err)
+	}
+	output, _, _ := runObserved(t, a)
+	clock.set(instant("2026-01-01T00:01:00Z"))
+	output.await(t, `workflow "integrity" completed with warnings; 1 stage(s) not started`)
+	if !strings.Contains(output.text(), "Invalid segment magic") || strings.Contains(output.text(), "task 1 compact") {
+		t.Fatal("check warning diagnostics or stage barrier lost:", output.text())
+	}
+	after, err := os.ReadFile(segment)
+	if err != nil || !bytes.Equal(damaged, after) {
+		t.Fatalf("scheduled check modified damaged segment: %v", err)
+	}
+}
+
 func TestRealBorgScheduledCancellation(t *testing.T) {
+	for name, task := range map[string]string{
+		"compact": "{type: compact, repository: local, lock_wait: 60}",
+		"check":   "{type: check, repository: local, lock_wait: 60, verify_data: true}",
+	} {
+		t.Run(name, func(t *testing.T) { testRealBorgScheduledCancellation(t, task) })
+	}
+}
+
+func testRealBorgScheduledCancellation(t *testing.T, task string) {
+	t.Helper()
 	binary := realBorg(t)
 	a, clock := newTestAgent(t, `  nightly:
     cron: "* * * * *"
-    stages: [{tasks: [{type: compact, repository: local, lock_wait: 60}]}]
+    stages: [{tasks: [`+task+`]}]
 `, instant("2026-01-01T00:00:00Z"))
 	repository := filepath.Join(a.selected.Directory, "repo")
 	borgCommand(t, binary, "init", "--encryption=none", repository)

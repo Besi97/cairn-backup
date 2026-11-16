@@ -58,6 +58,10 @@ workflows:
           - {type: prune, repository: local, archive_prefix: docs, keep_daily: 1}
       - tasks:
           - {type: compact, repository: local}
+      - tasks:
+          - {type: check, repository: local}
+      - tasks:
+          - {type: check, repository: local, verify_data: true}
   compact-only:
     stages:
       - tasks: [{type: compact, repository: local}]
@@ -78,6 +82,11 @@ workflows:
 			}
 			if secret != "" && strings.Contains(stdout.String()+stderr.String(), secret) {
 				t.Fatal("configured credential leaked")
+			}
+			for _, text := range []string{"stage 4 task 1 check", "stage 5 task 1 check", "Starting repository check", "Starting archive consistency check"} {
+				if !strings.Contains(stderr.String(), text) {
+					t.Errorf("missing check diagnostics %q: %s", text, &stderr)
+				}
 			}
 			assertArchiveNames(t, repositoryArchives(t, ctx, binary, repository, secret), "docs-current", "other-keep")
 			got := borgOutput(t, ctx, binary, secret, "extract", "--stdout", repository+"::docs-current", "payload")
