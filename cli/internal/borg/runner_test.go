@@ -82,6 +82,27 @@ func TestInvocation(t *testing.T) {
 	}
 }
 
+func TestSeparatedStdout(t *testing.T) {
+	req := request()
+	var stdout, diagnostics bytes.Buffer
+	req.Stdout, req.Diagnostics = &stdout, &diagnostics
+	result, err := (Runner{Executable: fakeBorg}).Run(t.Context(), req)
+	if result.Outcome != Success || err != nil || stdout.String() != "stdout diagnostic\n" || diagnostics.String() != "stderr diagnostic\n" {
+		t.Fatalf("result = %+v, error = %v, stdout = %q, diagnostics = %q", result, err, &stdout, &diagnostics)
+	}
+}
+
+func TestSeparatedStdoutFailure(t *testing.T) {
+	for _, writer := range []io.Writer{failingWriter{io.ErrClosedPipe}, shortWriter{}} {
+		req := request()
+		req.Stdout = writer
+		result, err := (Runner{Executable: fakeBorg}).Run(t.Context(), req)
+		if result.Outcome != Failure || err == nil || !strings.Contains(err.Error(), "write Borg results") {
+			t.Fatalf("result = %+v, error = %v", result, err)
+		}
+	}
+}
+
 func TestPathLookup(t *testing.T) {
 	t.Setenv("PATH", filepath.Dir(fakeBorg))
 	result, err := (Runner{}).Run(t.Context(), request())
