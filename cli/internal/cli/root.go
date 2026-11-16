@@ -90,5 +90,6 @@ func newRootCommand(version string) *cobra.Command {
 	addTUIConfigFlag(cmd)
 	cmd.AddCommand(newTUICommand())
 	cmd.AddCommand(newBackupCommand(), newPruneCommand(), newCompactCommand(), newConfigCommand(), newWorkflowCommand(), newAgentCommand())
+	cmd.AddCommand(newArchiveCommand())
 	return cmd
 }

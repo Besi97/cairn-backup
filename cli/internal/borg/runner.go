@@ -41,9 +41,12 @@ type Request struct {
 	Env         map[string]string
 	Diagnostics io.Writer
 	// Progress opts human operation output into Borg's structured log channel.
-	// It never applies to commands whose stdout is operation data.
+	// A separated Stdout remains untouched.
 	Progress func(Progress) error
 	Access   AccessOptions
+	// Stdout separates result data from stderr diagnostics when non-nil.
+	// Nil preserves the combined diagnostic stream used by existing operations.
+	Stdout io.Writer
 }
 
 // Runner uses Borg from PATH unless Executable selects an explicit binary.
@@ -128,6 +131,11 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 		plain = &logOutput{writer: output, raw: true}
 		cmd.Stdout, cmd.Stderr = plain, logs
 	}
+	var stdout *lockedWriter
+	if req.Stdout != nil {
+		stdout = &lockedWriter{writer: req.Stdout}
+		cmd.Stdout = stdout
+	}
 	err = runProcess(ctx, cmd, shutdownGrace)
 	var logErr error
 	if logs != nil {
@@ -137,6 +145,11 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 		result := processResult(cmd)
 		result.Outcome = Interrupted
 		return result, err
+	}
+	if stdout != nil && stdout.Err() != nil {
+		result := processResult(cmd)
+		result.Outcome = Failure
+		return result, fmt.Errorf("write Borg results: %w", errors.Join(stdout.Err(), err))
 	}
 	if logErr != nil {
 		result := processResult(cmd)

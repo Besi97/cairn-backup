@@ -198,6 +198,29 @@ lock timeout), `3` invalid inputs, and `130`/`143` interruption.
 Borg can report detected corruption as warnings and skip archive checks after
 repository errors. Always inspect the diagnostics for any nonzero outcome.
 
+## Archive listing and inspection
+
+```sh
+cairn archive list --repository /backups/repo
+cairn archive inspect --repository /backups/repo --archive-name documents-before-upgrade
+cairn archive inspect --repository /backups/repo --archive-name documents-before-upgrade --json
+```
+
+List all archives, including checkpoints, or stream file metadata from one archive.
+Both commands require an explicit repository and reuse the access-file and
+`--lock-wait` options without loading configuration. Inspection does not extract
+files, display their contents, or verify data integrity.
+
+Results go to stdout and diagnostics to stderr, with no trailing summary.
+`--json` emits Cairn JSON Lines records. Output may be partial on failure:
+always check the exit code. Records are bounded to 1 MiB and streamed without
+accumulating the listing.
+
+**Names and paths are potentially lossy display text, not byte-exact restore
+selectors.** Human output quotes terminal controls. See the
+[archive inspection contract](../docs/archive-inspection.md) for fields,
+limitations, and the shared streaming backend.
+
 ## Configuration
 
 The [configuration contract](../docs/configuration.md),
@@ -347,9 +370,10 @@ suggestions; use `cairn config check` to see configuration diagnostics.
 
 ## Output and exit codes
 
-Operation status, Borg progress/statistics, file/archive lists, warnings, and errors go
-to stderr. The final human-readable outcome goes to stdout. Output wording is not
-a machine-readable API.
+Operation status, Borg progress/statistics, backup/prune lists, warnings, and errors
+go to stderr. The final human-readable outcome goes to stdout. Archive listing and
+inspection instead stream result rows (or `--json` records) to stdout without a
+summary. Human-readable wording is not a machine-readable API.
 
 Interactive runs use a compact task board; pipes and journals use plain lines.
 See [output formatting and attribution](../docs/output.md) for examples.
@@ -403,6 +427,8 @@ and streams operation diagnostics to a supplied writer. Callers prepare argument
 arrays, environment overrides, and the working directory; the runner neither
 loads configuration nor invokes a shell. Results distinguish success, warnings,
 failures, and interruption while retaining the process exit code.
+Optional `Request.Stdout` separates result data from stderr; nil retains combined
+diagnostics. `internal/archive` reuses this runner for bounded typed metadata streams.
 
 `internal/lifecycle` reports typed run, stage, and task events independently of
 human output and Borg diagnostics. See the [event API](../docs/lifecycle-events.md)
