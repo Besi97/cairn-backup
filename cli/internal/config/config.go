@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
+	"go.yaml.in/yaml/v3"
 )
 
 // Config contains a validated version 1 configuration and its selected location.
@@ -20,6 +21,7 @@ type Config struct {
 	Workflows    map[string]Workflow   `json:"workflows"`
 	Path         string                `json:"-"`
 	Directory    string                `json:"-"`
+	display      *yaml.Node
 }
 
 type Repository struct {
@@ -101,6 +103,7 @@ func Load(options Options) (*Config, error) {
 	if err := result.resolve(options.Home, doc); err != nil {
 		return nil, err
 	}
+	result.display = displaySnapshot(doc, value)
 	return &result, nil
 }
 

@@ -103,10 +103,15 @@ func (s *terminalSession) text() string {
 
 func (s *terminalSession) waitFor(t *testing.T, text string) {
 	t.Helper()
+	s.waitForAfter(t, text, 0)
+}
+
+func (s *terminalSession) waitForAfter(t *testing.T, text string, offset int) {
+	t.Helper()
 	timeout := time.NewTimer(10 * time.Second)
 	defer timeout.Stop()
 	for {
-		if strings.Contains(s.text(), text) {
+		if strings.Contains(s.text()[offset:], text) {
 			return
 		}
 		select {
@@ -157,7 +162,7 @@ func TestTUITerminal(t *testing.T) {
 				s := startTerminal(t, binary, dir, args...)
 				s.waitFor(t, "Configuration:")
 				s.waitFor(t, "\x1b[?1049h")
-				if _, err := io.WriteString(s.file, "\t"); err != nil {
+				if _, err := io.WriteString(s.file, "?"); err != nil {
 					t.Fatal(err)
 				}
 				s.waitFor(t, "Keyboard help")
@@ -186,6 +191,41 @@ func TestTUITerminal(t *testing.T) {
 			t.Fatal(err)
 		}
 		s.exit(t, 0)
+	})
+	t.Run("browse and reload selected snapshot", func(t *testing.T) {
+		dir := t.TempDir()
+		path := writeTUIConfig(t, dir, tuiConfig)
+		s := startTerminal(t, binary, dir, "tui")
+		s.waitFor(t, "Configuration:")
+		send := func(keys, want string) {
+			t.Helper()
+			offset := len(s.text())
+			if _, err := io.WriteString(s.file, keys); err != nil {
+				t.Fatal(err)
+			}
+			s.waitForAfter(t, want, offset)
+		}
+		send("\t", "enter workflow")
+		send("\r", "Cron: * * * * *")
+		send("\r", "Referenced by nightly")
+		send("y", "Section: repositories / local")
+		send("\x1b", "y repository YAML")
+		send("\x1b", "Stages run in order")
+		send("\x1b", "enter workflow")
+		send("\t", "Normalized YAML; configured paths")
+		if err := os.WriteFile(path, []byte("version: never-display-this\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		send("r", "Previous TUI snapshot retained")
+		writeTUIConfig(t, dir, strings.ReplaceAll(tuiConfig, "nightly", "reloaded-workflow"))
+		send("r", "Agent snapshot unchanged")
+		send("\x1b", "Read-only terminal interface.")
+		send("\t", "reloaded-workflow")
+		if _, err := io.WriteString(s.file, "q"); err != nil {
+			t.Fatal(err)
+		}
+		s.exit(t, 0)
+		s.waitFor(t, "\x1b[?1049l")
 	})
 	t.Run("configuration errors before terminal takeover", func(t *testing.T) {
 		for _, tt := range []struct {
