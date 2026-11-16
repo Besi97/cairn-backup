@@ -14,10 +14,11 @@ import (
 func newArchiveCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "archive",
-		Short: "List archives and inspect file metadata",
+		Short: "List, inspect, and mount archives",
 		Args:  cobra.NoArgs,
 	}
 	cmd.AddCommand(newArchiveListingCommand(false), newArchiveListingCommand(true))
+	cmd.AddCommand(newArchiveMountCommand(), newArchiveUnmountCommand())
 	return cmd
 }
 

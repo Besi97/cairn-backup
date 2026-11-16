@@ -33,6 +33,11 @@ or b/f scroll a page. `q` quits successfully; Ctrl+C exits `130`. Resizing prese
 the selected view; very small terminals show a resize hint and still accept keys.
 Closing the interface does not stop the agent or unrelated runs.
 
+## Archive mounting
+
+For optional read-only archive mounts, see [archive mounting](../docs/archive-mounting.md).
+Mounting requires separately configured FUSE and keeps Cairn in the foreground.
+
 ## Backup
 
 Back up to an existing local or SSH repository without configuration or a running
