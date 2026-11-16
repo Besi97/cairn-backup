@@ -12,6 +12,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/Besi97/cairn-backup/cli/internal/archive"
 	"github.com/Besi97/cairn-backup/cli/internal/config"
 )
 
@@ -21,14 +22,18 @@ const (
 	homePage page = iota
 	workflowsPage
 	configurationPage
+	archivesPage
 	helpPage
 	workflowPage
 	repositoryPage
 	yamlPage
+	archiveListPage
+	fileListPage
+	filePage
 )
 
 // Model owns navigation and a validated TUI snapshot, separate from any agent.
-// It never starts operations or changes configuration files.
+// It only reads configuration and archive metadata, independently of any agent.
 type Model struct {
 	selected   *config.Config
 	page       page
@@ -44,6 +49,7 @@ type Model struct {
 	yamlFields []string
 	reloading  bool
 	status     string
+	browser    *archiveBrowser
 }
 
 // New opens Home with an already validated configuration.
@@ -55,12 +61,15 @@ func New(selected *config.Config) Model {
 	h.Styles.FullDesc = h.Styles.ShortDesc
 	body := viewport.New()
 	body.SoftWrap = true
-	return Model{selected: selected, keys: newKeyMap(), help: h, body: body}
+	return Model{selected: selected, keys: newKeyMap(), help: h, body: body, browser: newArchiveBrowser()}
 }
 
 // Run uses only the supplied streams and leaves signal ownership with the CLI.
 func Run(ctx context.Context, input io.Reader, output io.Writer, selected *config.Config) error {
-	_, err := tea.NewProgram(New(selected), tea.WithContext(ctx),
+	model := New(selected)
+	model.browser.ctx = ctx
+	defer model.browser.close()
+	_, err := tea.NewProgram(model, tea.WithContext(ctx),
 		tea.WithInput(input), tea.WithOutput(output), tea.WithoutSignalHandler()).Run()
 	return err
 }
@@ -69,21 +78,32 @@ func (m Model) Init() tea.Cmd { return nil }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case scanUpdate:
+		return m.updateScan(msg)
+	case tea.PasteMsg:
+		if m.browser.editing {
+			return m.editSearch(tea.KeyPressMsg{Text: msg.Content})
+		}
 	case tea.WindowSizeMsg:
 		m.width, m.height = max(0, msg.Width), max(0, msg.Height)
 		m.help.SetWidth(m.width)
 		m.body.SetWidth(m.width)
 		m.body.SetHeight(max(0, m.height-4))
 		m.refresh()
-		if m.page == workflowsPage || m.page == workflowPage {
+		if m.selectablePage() {
 			m.revealSelection()
 		}
 		return m, nil
 	case tea.KeyPressMsg:
+		if m.browser.editing && !key.Matches(msg, m.keys.Interrupt) {
+			return m.editSearch(msg)
+		}
 		switch {
 		case key.Matches(msg, m.keys.Interrupt):
+			m.browser.stop()
 			return m, tea.Interrupt
 		case key.Matches(msg, m.keys.Quit):
+			m.browser.stop()
 			return m, tea.Quit
 		case key.Matches(msg, m.keys.Reload):
 			if m.reloading {
@@ -100,14 +120,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m.changed()
 		case key.Matches(msg, m.keys.Next, m.keys.Previous):
+			m.browser.stop()
+			m.browser.rows = nil
+			m.browser.archive = archive.Archive{}
 			direction := 1
 			if key.Matches(msg, m.keys.Previous) {
 				direction = -1
 			}
-			m.page = (m.tab() + page(direction) + 4) % 4
+			m.page = (m.tab() + page(direction) + 5) % 5
 			return m.changed()
 		case key.Matches(msg, m.keys.Back):
 			switch m.page {
+			case archiveListPage:
+				m.browser.stop()
+				m.browser.rows = nil
+				m.page = m.browser.from
+			case fileListPage:
+				m.page = archiveListPage
+				m.browser.archive, m.browser.query = archive.Archive{}, ""
+				return m.startBrowse(false)
+			case filePage:
+				m.page = fileListPage
 			case workflowPage:
 				m.page = workflowsPage
 			case repositoryPage:
@@ -122,6 +155,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.changed()
 		case key.Matches(msg, m.keys.Open):
 			switch {
+			case m.page == archivesPage && len(m.repositoryNames()) > 0:
+				m.browser.from = archivesPage
+				m.browser.name = m.repositoryNames()[m.browser.repository]
+				m.browser.archive, m.browser.query = archive.Archive{}, ""
+				m.page = archiveListPage
+				return m.startBrowse(false)
+			case m.page == repositoryPage:
+				m.browser.from = repositoryPage
+				m.browser.name = m.selectedTask().Repository
+				m.browser.archive, m.browser.query = archive.Archive{}, ""
+				m.page = archiveListPage
+				return m.startBrowse(false)
+			case m.page == archiveListPage && len(m.browser.rows) > 0:
+				m.browser.archive = m.browser.rows[m.browser.cursor].archive
+				if m.browser.archive.Name == "" {
+					return m, nil
+				}
+				m.browser.query = ""
+				m.page = fileListPage
+				return m.startBrowse(true)
+			case m.page == fileListPage && len(m.browser.rows) > 0:
+				m.page = filePage
 			case m.page == workflowsPage && len(m.workflowNames()) > 0:
 				m.page, m.task = workflowPage, 0
 			case m.page == workflowPage && len(m.tasks()) > 0:
@@ -130,6 +185,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m.changed()
+		case m.page == fileListPage && msg.Code == '/':
+			m.browser.editing, m.browser.input = true, m.browser.query
+			m.refresh()
+			return m, nil
+		case m.browserPage() && key.Matches(msg, m.keys.Scroll):
+			direction := 1
+			if msg.Code == tea.KeyUp || msg.Code == 'k' {
+				direction = -1
+			}
+			switch m.page {
+			case archivesPage:
+				m.browser.repository = max(0, min(m.browser.repository+direction, len(m.repositoryNames())-1))
+			case archiveListPage, fileListPage:
+				m.browser.cursor = max(0, min(m.browser.cursor+direction, len(m.browser.rows)-1))
+			}
+			if m.page != filePage {
+				return m.changed()
+			}
 		case key.Matches(msg, m.keys.YAML):
 			switch m.page {
 			case workflowPage:
@@ -161,6 +234,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.selected == nil {
 			m.status = "Reload failed: cannot read or validate selected configuration. Previous TUI snapshot retained."
 		} else {
+			m.browser.stop()
+			m.browser.rows = nil
+			m.browser.archive = archive.Archive{}
+			m.browser.repository = 0
 			name := m.workflowName()
 			m.selected = msg.selected
 			m.workflow = max(0, slices.Index(m.workflowNames(), name))
@@ -181,10 +258,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) changed() (tea.Model, tea.Cmd) {
 	m.body.GotoTop()
 	m.refresh()
-	if m.page == workflowsPage || m.page == workflowPage {
+	if m.selectablePage() {
 		m.revealSelection()
 	}
 	return m, nil
+}
+
+func (m Model) selectablePage() bool {
+	return m.page == workflowsPage || m.page == workflowPage ||
+		m.page == archivesPage || m.page == archiveListPage || m.page == fileListPage
 }
 
 func (m Model) View() tea.View {
@@ -193,7 +275,7 @@ func (m Model) View() tea.View {
 		if m.width < 24 || m.height < 6 {
 			content = "Resize terminal (24x6).\nq quit"
 		} else {
-			tabs := []string{"Home", "Workflows", "Configuration", "Help"}
+			tabs := []string{"Home", "Workflows", "Configuration", "Archives", "Help"}
 			tabs[m.tab()] = lipgloss.NewStyle().Bold(true).Underline(true).Render(tabs[m.tab()])
 			content = "Cairn  " + strings.Join(tabs, " | ") + "\n\n" +
 				m.body.View() + "\n\n" + m.help.ShortHelpView(m.keys.ShortHelp())

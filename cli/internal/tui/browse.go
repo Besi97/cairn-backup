@@ -29,6 +29,9 @@ func reload(path string) tea.Cmd {
 }
 
 func (m Model) tab() page {
+	if m.page == archiveListPage || m.page == fileListPage || m.page == filePage {
+		return archivesPage
+	}
 	if m.page > helpPage {
 		return workflowsPage
 	}
@@ -89,10 +92,12 @@ func (m Model) schedule(workflow config.Workflow) string {
 func (m *Model) refresh() {
 	var text strings.Builder
 	switch m.page {
+	case archivesPage, archiveListPage, fileListPage, filePage:
+		text.WriteString(m.browserText())
 	case homePage:
 		fmt.Fprintf(&text, "Read-only terminal interface.\n\nConfiguration: %s\n\n"+
 			"%d workflows · %d repositories\n\n"+
-			"Tab: browse workflows and configuration. ?: keyboard help.\n"+
+			"Tab: browse workflows, configuration and archives. ?: keyboard help.\n"+
 			"r: reload the selected file into this TUI only.\n"+
 			"No agent state is observed; its startup snapshot is separate.\n"+
 			"Use the CLI for backup and repository maintenance.",
@@ -141,7 +146,7 @@ func (m *Model) refresh() {
 	case repositoryPage:
 		task := m.selectedTask()
 		fmt.Fprintf(&text, "Repository: %s\nReferenced by %s / stage %d / task %d\n\n"+
-			"y repository YAML · esc back\n\nConfigured values (paths are unresolved):\n%s",
+			"enter list archives · y repository YAML · esc back\n\nConfigured values (paths are unresolved):\n%s",
 			config.DisplayText(task.Repository), config.DisplayText(m.workflowName()), task.stage, task.task,
 			m.selected.SanitizedYAML("repositories", task.Repository))
 	case configurationPage:
@@ -168,6 +173,11 @@ func (m *Model) refresh() {
 			"\n\nWorkflows: select a workflow, then a task; enter follows its repository.\n" +
 			"y opens the workflow or repository YAML. Esc returns.\n" +
 			"Page keys scroll details; arrows select workflows/tasks.\n" +
+			"Archives: choose a repository and archive; enter opens file metadata.\n" +
+			"/ edits a literal, case-sensitive file path search; Enter scans the entire archive.\n" +
+			"Esc cancels a scan when leaving its list. Browsing may open credentials and contact repositories.\n" +
+			"Listings retain at most 1,000 rows / 8 MiB. Truncation and partial results are labelled.\n" +
+			"Names and paths are lossy display text, never exact restore selectors.\n" +
 			"Configuration is a read-only TUI snapshot, not live agent state.\n" +
 			"r validates the selected file and replaces only this TUI snapshot.\n" +
 			"A failed reload keeps the previous snapshot. No automatic rereads.\n" +

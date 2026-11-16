@@ -49,7 +49,7 @@ func startTerminal(t *testing.T, binary, dir string, args ...string) *terminalSe
 	t.Helper()
 	cmd := exec.Command(binary, args...)
 	cmd.Dir = dir
-	cmd.Env = []string{"PATH=", "HOME=" + dir, "XDG_CONFIG_HOME=" + dir, "TERM=xterm-256color"}
+	cmd.Env = []string{"PATH=" + filepath.Join(dir, "bin"), "HOME=" + dir, "XDG_CONFIG_HOME=" + dir, "TERM=xterm-256color"}
 	file, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 100})
 	if err != nil {
 		t.Fatal(err)
@@ -331,6 +331,81 @@ func TestTUIPartialTerminal(t *testing.T) {
 						t.Fatalf("stdout = %q", &stdout)
 					}
 				}
+			}
+		})
+	}
+}
+
+func TestTUIArchiveTerminal(t *testing.T) {
+	binary := buildExecutable(t, "cairn", ".")
+	fake := buildExecutable(t, "borg", "../../internal/tui/testdata/browserborg")
+	for _, quit := range []string{"q", "\x03", "signal"} {
+		t.Run(quit, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.Mkdir(filepath.Join(dir, "bin"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(fake, filepath.Join(dir, "bin", "borg")); err != nil {
+				t.Fatal(err)
+			}
+			repository := filepath.Join(dir, "repo")
+			writeTUIConfig(t, dir, strings.ReplaceAll(tuiConfig, "/not-accessed", repository))
+			s := startTerminal(t, binary, dir, "tui")
+			s.waitFor(t, "Configuration:")
+			send := func(keys, want string) {
+				t.Helper()
+				offset := len(s.text())
+				if _, err := io.WriteString(s.file, keys); err != nil {
+					t.Fatal(err)
+				}
+				s.waitForAfter(t, want, offset)
+			}
+			send("\t\t\t", "enter list archives")
+			send("\r", "2026-11-16  files")
+			send("\r", "TRUNCATED")
+			send("/needle\r", "last/needle")
+			send("\r", "Size: 4999 bytes")
+			send("\x1b", "Search (literal")
+			send("\x1b", "2026-11-16  slow")
+			if _, err := io.WriteString(s.file, "j\r"); err != nil {
+				t.Fatal(err)
+			}
+			// The fake emits a marker after installing its signal handler.
+			deadline := time.Now().Add(5 * time.Second)
+			for {
+				if _, err := os.Stat(repository + ".running"); err == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("slow listing did not start")
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			if err := pty.Setsize(s.file, &pty.Winsize{Rows: 12, Cols: 60}); err != nil {
+				t.Fatal(err)
+			}
+			send("?", "Keyboard help")
+			code := 0
+			if quit == "signal" {
+				if err := s.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+					t.Fatal(err)
+				}
+				code = 143
+			} else {
+				if _, err := io.WriteString(s.file, quit); err != nil {
+					t.Fatal(err)
+				}
+				if quit == "\x03" {
+					code = 130
+				}
+			}
+			s.exit(t, code)
+			s.waitFor(t, "\x1b[?1049l")
+			if _, err := os.Stat(repository + ".stopped"); err != nil {
+				t.Fatal("TUI exited before listing process cleanup:", err)
+			}
+			if strings.Contains(s.text(), "\x1b]0;unsafe") {
+				t.Fatal("Borg diagnostics reached terminal")
 			}
 		})
 	}
