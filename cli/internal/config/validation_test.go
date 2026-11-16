@@ -45,6 +45,12 @@ func TestInvalidConfigurations(t *testing.T) {
 		{"fractional wait", withTask("{type: compact, repository: local, lock_wait: 1.00000000000000000001}"), "/lock_wait"},
 		{"tiny fractional wait", withTask("{type: compact, repository: local, lock_wait: 1e-324}"), "/lock_wait"},
 		{"dry run", withTask("{type: compact, repository: local, dry_run: true}"), "unknown"},
+		{"check repository", withTask("{type: check}"), "missing required"},
+		{"check reference", withTask("{type: check, repository: missing}"), "/repository"},
+		{"check verify type", withTask("{type: check, repository: local, verify_data: 'true'}"), "/verify_data"},
+		{"check repair", withTask("{type: check, repository: local, repair: true}"), "unknown"},
+		{"check selector", withTask("{type: check, repository: local, archive_prefix: docs}"), "unknown"},
+		{"check negative wait", withTask("{type: check, repository: local, lock_wait: -1}"), "/lock_wait"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := loadText(t, tt.text)
@@ -81,6 +87,9 @@ func TestValidConfigurations(t *testing.T) {
 		"{type: prune, repository: local, archive_prefix: docs, keep_within: 999999999999999999999999999y}",
 		"{type: compact, repository: local, lock_wait: 9223372036854775807}",
 		"{type: compact, repository: local, lock_wait: 1.0}",
+		"{type: check, repository: local}",
+		"{type: check, repository: local, verify_data: false}",
+		"{type: check, repository: local, verify_data: true, lock_wait: 0}",
 	} {
 		t.Run(task, func(t *testing.T) {
 			config, err := loadText(t, withTask(task))

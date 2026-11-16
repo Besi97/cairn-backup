@@ -69,6 +69,18 @@ workflows:
           - type: compact
             repository: offsite
 
+  weekly_check:
+    cron: "0 4 * * SUN"
+    timezone: Europe/Berlin
+    stages:
+      - tasks:
+          - type: check
+            repository: local
+          - type: check
+            repository: offsite
+            # Reads all archived data, including over SSH; can be slow.
+            verify_data: true
+
   before_upgrade:
     # No cron: run manually without starting the scheduler.
     stages:

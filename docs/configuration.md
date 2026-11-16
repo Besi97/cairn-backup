@@ -3,7 +3,7 @@
 This is the version 1 configuration contract agreed in
 [#52](https://github.com/Besi97/cairn-backup/issues/52). Configuration loading and
 checking, manual and scheduled workflow execution, and overlap protection are
-implemented. Standalone `backup`, `prune`, and `compact` remain
+implemented. Standalone `backup`, `prune`, `compact`, and `check` remain
 usable without configuration or a scheduler and do not discover config files.
 
 - [Example YAML](../cli/examples/config.yaml)
@@ -285,6 +285,29 @@ Only `type: compact`, the required `repository` reference, and optional
 `lock_wait` are allowed. `lock_wait` defaults to `60` seconds; zero is valid.
 Compaction is repository-wide, never prefix-scoped, and keeps Borg's default
 threshold. It does not delete archives.
+
+### Check task
+
+| Field | Meaning |
+| --- | --- |
+| `type` | Required literal `check`. |
+| `repository` | Required nonempty repository name. |
+| `verify_data` | Optional boolean, defaults to `false`. Also cryptographically verify archived file contents. |
+| `lock_wait` | Optional nonnegative integer seconds; defaults to `60`. Explicit `0` does not wait. |
+
+Uses the same preparation, Borg execution, and normalized outcomes as standalone
+`cairn check`. By default, Borg checks repository consistency (including segment
+checksums) and all archive metadata, not cryptographic file-content integrity.
+With `verify_data: true`, Borg also reads, decrypts, and decompresses all archived
+data; this can take a long time and transfer substantial data over SSH. Encrypted
+archives need their key and passphrase, using the repository's usual credentials.
+
+Checks never request repair, but may acquire locks and update Borg state.
+Repair, partial checks, archive selectors, repository-only, and archives-only
+switches are not supported. Borg warnings can indicate corruption or skipped
+checks: inspect diagnostics. As with other tasks, warnings and failures stop later
+stages without cancelling siblings or triggering retries. Add `cron` to the
+workflow to schedule checks, or use `cairn workflow run` for an immediate run.
 
 ## Configuration selection
 

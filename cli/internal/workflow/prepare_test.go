@@ -4,10 +4,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Besi97/cairn-backup/cli/internal/backup"
+	"github.com/Besi97/cairn-backup/cli/internal/check"
 	"github.com/Besi97/cairn-backup/cli/internal/compact"
 	"github.com/Besi97/cairn-backup/cli/internal/config"
 	"github.com/Besi97/cairn-backup/cli/internal/prune"
@@ -99,7 +101,7 @@ workflows:
 
 func TestPrepareInlineCredentials(t *testing.T) {
 	for _, secret := range []string{"", "literal $HOME {hostname}\nsecret"} {
-		for _, operation := range []string{"backup", "prune", "compact"} {
+		for _, operation := range []string{"backup", "prune", "compact", "check"} {
 			t.Run(operation+"/"+secret, func(t *testing.T) {
 				task := config.Task{
 					Type: operation, Repository: "repo", ArchivePrefix: "docs",
@@ -118,5 +120,62 @@ func TestPrepareInlineCredentials(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestPrepareCheckParity(t *testing.T) {
+	for _, verify := range []string{"", ", verify_data: false", ", verify_data: true"} {
+		t.Run(verify, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "config.yaml")
+			text := `version: 1
+repositories:
+  remote:
+    location: "user@host:~/repo"
+    passphrase_file: ./missing-secret
+    identity_file: ./missing-key
+workflows:
+  integrity:
+    cron: "@weekly"
+    stages:
+      - tasks: [{type: check, repository: remote, lock_wait: 0` + verify + `}]
+`
+			if err := os.WriteFile(path, []byte(text), 0600); err != nil {
+				t.Fatal(err)
+			}
+			selected, err := config.Load(config.Options{Path: path, Explicit: true, Directory: dir})
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan, err := Prepare(selected, "integrity", time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			zero := 0
+			verifyData := strings.HasSuffix(verify, "true")
+			want, err := check.Prepare(check.Options{
+				Repository: "user@host:~/repo", LockWait: &zero, VerifyData: verifyData,
+				PassphraseFile: filepath.Join(dir, "missing-secret"), IdentityFile: filepath.Join(dir, "missing-key"),
+			}, dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			task := plan.Stages[0][0]
+			if task.Type != "check" || task.Repository != "remote" || !reflect.DeepEqual(task.Request, want) {
+				t.Fatal("check differs from standalone preparation")
+			}
+			for _, text := range []string{"whole repository consistency", "all archive metadata", "no repair", "Borg warnings"} {
+				if !strings.Contains(task.Scope, text) {
+					t.Errorf("scope missing %q", text)
+				}
+			}
+			if verifyData {
+				if !strings.Contains(task.Scope, "cryptographic file-content verification") || !strings.Contains(task.Scope, "substantial remote data") {
+					t.Fatal("missing full verification scope/cost")
+				}
+			} else if !strings.Contains(task.Scope, "file contents are NOT cryptographically verified") {
+				t.Fatal("default scope overstates content verification")
+			}
+		})
 	}
 }

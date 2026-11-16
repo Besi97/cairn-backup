@@ -98,7 +98,8 @@
       "oneOf": [
         { "$ref": "#/$defs/backupTask" },
         { "$ref": "#/$defs/pruneTask" },
-        { "$ref": "#/$defs/compactTask" }
+        { "$ref": "#/$defs/compactTask" },
+        { "$ref": "#/$defs/checkTask" }
       ]
     },
     "backupTask": {
@@ -203,6 +204,25 @@
         { "required": ["keep_monthly"], "properties": { "keep_monthly": { "not": { "const": 0 } } } },
         { "required": ["keep_yearly"], "properties": { "keep_yearly": { "not": { "const": 0 } } } }
       ]
+    },
+    "checkTask": {
+      "title": "Check task",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "repository"],
+      "properties": {
+        "type": { "const": "check" },
+        "repository": {
+          "$ref": "#/$defs/nonemptyString",
+          "description": "Name of a repository defined in repositories. Check whole-repository consistency and all archive metadata without repair."
+        },
+        "verify_data": {
+          "type": "boolean",
+          "default": false,
+          "description": "Also cryptographically verify archived file contents. Reads all data and can be slow or transfer substantial data over SSH."
+        },
+        "lock_wait": { "$ref": "#/$defs/lockWait" }
+      }
     },
     "compactTask": {
       "title": "Compact task",

@@ -8,6 +8,7 @@ import (
 
 	"github.com/Besi97/cairn-backup/cli/internal/backup"
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
+	"github.com/Besi97/cairn-backup/cli/internal/check"
 	"github.com/Besi97/cairn-backup/cli/internal/compact"
 	"github.com/Besi97/cairn-backup/cli/internal/config"
 	"github.com/Besi97/cairn-backup/cli/internal/prune"
@@ -93,6 +94,21 @@ func prepareTask(task config.Task, repository config.Repository, directory strin
 			return Task{}, err
 		}
 		result.Request, result.Scope = request, "whole repository; reclaiming eligible space"
+	case "check":
+		request, err := check.Prepare(check.Options{
+			Repository: repository.Location, PassphraseFile: repository.PassphraseFile,
+			IdentityFile: repository.IdentityFile, LockWait: task.LockWait,
+			VerifyData: task.VerifyData,
+		}, directory)
+		if err != nil {
+			return Task{}, err
+		}
+		result.Request = request
+		result.Scope = "whole repository consistency and all archive metadata; file contents are NOT cryptographically verified; no repair"
+		if task.VerifyData {
+			result.Scope = "whole repository consistency, all archive metadata, and cryptographic file-content verification; may take a long time and transfer substantial remote data; no repair"
+		}
+		result.Scope += "; Borg warnings can indicate corruption or skipped checks; inspect its diagnostics."
 	default:
 		return Task{}, fmt.Errorf("unsupported task type")
 	}

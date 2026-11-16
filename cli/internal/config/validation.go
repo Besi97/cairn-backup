@@ -66,7 +66,7 @@ func validate(path string, doc *yaml.Node, value any) error {
 					if strings.Contains(leaf.SchemaURL, "/backupTask") {
 						reason = "provide exactly one archive_prefix or archive_name"
 					} else {
-						reason = "task type must be backup, prune, or compact"
+						reason = "task type must be backup, prune, compact, or check"
 					}
 				case "anyOf":
 					reason = "prune requires at least one effective retention rule"
@@ -102,7 +102,7 @@ func usefulError(err *jsonschema.ValidationError, doc *yaml.Node) *jsonschema.Va
 		if reference, ok := cause.ErrorKind.(*kind.Reference); ok {
 			location = reference.URL
 		}
-		for _, kind := range []string{"backup", "prune", "compact"} {
+		for _, kind := range []string{"backup", "prune", "compact", "check"} {
 			if strings.Contains(location, "/"+kind+"Task") {
 				fields := cause.InstanceLocation
 				if len(fields) >= 6 && fields[0] == "workflows" && fields[2] == "stages" && fields[4] == "tasks" {
