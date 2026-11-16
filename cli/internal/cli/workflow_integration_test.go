@@ -83,7 +83,7 @@ workflows:
 			if secret != "" && strings.Contains(stdout.String()+stderr.String(), secret) {
 				t.Fatal("configured credential leaked")
 			}
-			for _, text := range []string{"stage 4 task 1 check", "stage 5 task 1 check", "Starting repository check", "Starting archive consistency check"} {
+			for _, text := range []string{"manual 4.1 check/local", "manual 5.1 check/local", "Starting repository check", "Starting archive consistency check"} {
 				if !strings.Contains(stderr.String(), text) {
 					t.Errorf("missing check diagnostics %q: %s", text, &stderr)
 				}

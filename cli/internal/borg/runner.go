@@ -40,7 +40,10 @@ type Request struct {
 	Dir         string
 	Env         map[string]string
 	Diagnostics io.Writer
-	Access      AccessOptions
+	// Progress opts human operation output into Borg's structured log channel.
+	// It never applies to commands whose stdout is operation data.
+	Progress func(Progress) error
+	Access   AccessOptions
 }
 
 // Runner uses Borg from PATH unless Executable selects an explicit binary.
@@ -110,11 +113,35 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	cmd.Dir, cmd.Env, cmd.ExtraFiles = req.Dir, access.env, access.files
 	cmd.ExtraFiles = append(append([]*os.File(nil), cmd.ExtraFiles...), r.InheritedFiles...)
 	cmd.Stdout, cmd.Stderr = output, output
+	var logs, plain *logOutput
+	if req.Progress != nil {
+		// Common Borg options are accepted after the operation name. Keep the
+		// option before positional inputs and their "--" separator.
+		args = append([]string(nil), args...)
+		index := 1
+		if access.rsh != "" {
+			index += 2
+		}
+		args = append(args[:index], append([]string{"--log-json"}, args[index:]...)...)
+		cmd.Args = append([]string{path}, args...)
+		logs = &logOutput{writer: output, progress: req.Progress}
+		plain = &logOutput{writer: output, raw: true}
+		cmd.Stdout, cmd.Stderr = plain, logs
+	}
 	err = runProcess(ctx, cmd, shutdownGrace)
+	var logErr error
+	if logs != nil {
+		logErr = errors.Join(plain.flush(), logs.flush())
+	}
 	if ctx.Err() != nil && err != nil {
 		result := processResult(cmd)
 		result.Outcome = Interrupted
 		return result, err
+	}
+	if logErr != nil {
+		result := processResult(cmd)
+		result.Outcome = Failure
+		return result, fmt.Errorf("write Borg diagnostics: %w", logErr)
 	}
 	if outputErr := output.Err(); outputErr != nil {
 		// Cmd.Wait prefers an ExitError over its output-copy error. A writer

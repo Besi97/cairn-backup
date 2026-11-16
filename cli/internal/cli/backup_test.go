@@ -86,7 +86,7 @@ func TestBackupInvocation(t *testing.T) {
 	}
 	cwd, _ := os.Getwd()
 	got := readRecord(t, record)
-	want := []string{"create", "--lock-wait", "0", "--stats", "--progress", "--exclude=sh:a,b/*", "--exclude=*.tmp", "--", filepath.Join(cwd, "repo") + "::{hostname}-Before Upgrade", "./folder/../folder", "/absolute", "-hyphen", "$(false)"}
+	want := []string{"create", "--log-json", "--lock-wait", "0", "--stats", "--progress", "--exclude=sh:a,b/*", "--exclude=*.tmp", "--", filepath.Join(cwd, "repo") + "::{hostname}-Before Upgrade", "./folder/../folder", "/absolute", "-hyphen", "$(false)"}
 	if !reflect.DeepEqual(got.Args, want) || got.Dir != filepath.Join(cwd, root) {
 		t.Fatalf("invocation = %+v, want %q", got, want)
 	}
@@ -169,7 +169,7 @@ func TestBackupPreview(t *testing.T) {
 		t.Fatalf("code = %d, stderr = %s", code, &stderr)
 	}
 	args := readRecord(t, record).Args
-	if !reflect.DeepEqual(args[:5], []string{"create", "--lock-wait", "60", "--dry-run", "--list"}) || stdout.String() != "Backup preview completed; no archive created.\n" {
+	if !reflect.DeepEqual(args[:6], []string{"create", "--log-json", "--lock-wait", "60", "--dry-run", "--list"}) || stdout.String() != "Backup preview completed; no archive created.\n" {
 		t.Fatalf("args = %q, stdout = %q", args, &stdout)
 	}
 }
@@ -182,7 +182,7 @@ func TestBackupDecimalLockWait(t *testing.T) {
 	if code := Run(t.Context(), append(backupArgs(), "--lock-wait=08"), &stdout, &stderr, "test"); code != 0 {
 		t.Fatalf("code = %d, stderr = %s", code, &stderr)
 	}
-	if got := readRecord(t, record).Args[:3]; !reflect.DeepEqual(got, []string{"create", "--lock-wait", "8"}) {
+	if got := readRecord(t, record).Args[:4]; !reflect.DeepEqual(got, []string{"create", "--log-json", "--lock-wait", "8"}) {
 		t.Fatalf("args = %q", got)
 	}
 }

@@ -46,7 +46,7 @@ func TestWorkflowCLI(t *testing.T) {
 		want  string
 		calls int
 	}{
-		{"0", 0, `Workflow "manual" completed.`, 3},
+		{"0", 0, `Workflow "manual" completed; tasks: 3 succeeded.`, 3},
 		{"1", 1, "completed with warnings; 2 later stage(s) not started", 1},
 		{"100", 1, "completed with warnings; 2 later stage(s) not started", 1},
 		{"2", 2, "failed; 2 later stage(s) not started", 1},
@@ -95,7 +95,7 @@ func TestWorkflowCheckOutcomes(t *testing.T) {
 			exit, summary string
 			code          int
 		}{
-			{"0", "completed.", 0},
+			{"0", "completed; tasks: 2 succeeded.", 0},
 			{"1", "completed with warnings; 1 later stage(s) not started", 1},
 			{"100", "completed with warnings; 1 later stage(s) not started", 1},
 			{"2", "failed; 1 later stage(s) not started", 2},
@@ -119,12 +119,15 @@ workflows:
 				if code != tt.code || !strings.Contains(stdout.String(), `Workflow "manual" `+tt.summary) {
 					t.Fatalf("code=%d out=%s err=%s", code, &stdout, &stderr)
 				}
-				label := `[workflow "manual" stage 1 task 1 check repository "local"] `
+				label := "cairn [manual 1.1 check/local] "
 				if !strings.Contains(stdout.String(), label) || !strings.Contains(stderr.String(), label+"whole repository consistency") {
 					t.Fatalf("missing attributed check output: %s\n%s", &stdout, &stderr)
 				}
-				if tt.code != 0 && strings.Contains(stdout.String()+stderr.String(), "task 1 compact") {
+				if tt.code != 0 && strings.Contains(stdout.String(), "compact/local") {
 					t.Fatal("later stage started after check warning/failure")
+				}
+				if tt.code != 0 && !strings.Contains(stderr.String(), "cairn [manual 2.1 compact/local] skipped: previous stage") {
+					t.Fatal("missing explicit skip reason")
 				}
 			})
 		}

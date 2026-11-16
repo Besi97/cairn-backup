@@ -122,7 +122,7 @@ func (a *Agent) Run(ctx context.Context, stdout, stderr io.Writer) error {
 			due, missed := item.due(now)
 			if missed {
 				a.skippedRun(workCtx, item.name, expected, lifecycle.Expired)
-				report("workflow %q skipped expired occurrence(s)", item.name)
+				report("workflow %q skipped expired occurrence(s); %s", item.name, a.skippedTasks(item.name))
 			}
 			if due.IsZero() {
 				continue
@@ -136,7 +136,7 @@ func (a *Agent) Run(ctx context.Context, stdout, stderr io.Writer) error {
 			activeMu.Unlock()
 			if busy {
 				a.skippedRun(workCtx, name, due, lifecycle.Busy)
-				report("workflow %q skipped: already running", name)
+				report("workflow %q skipped: already running; %s", name, a.skippedTasks(name))
 				continue
 			}
 			workers.Add(1)
@@ -161,13 +161,13 @@ func (a *Agent) Run(ctx context.Context, stdout, stderr io.Writer) error {
 				// A delayed goroutine is not permission to queue an expired run.
 				if dispatched.Before(due) || !dispatched.Before(due.Add(time.Minute)) {
 					a.skippedRun(workCtx, name, due, lifecycle.Expired)
-					report("workflow %q skipped: occurrence is no longer current", name)
+					report("workflow %q skipped: occurrence is no longer current; %s", name, a.skippedTasks(name))
 					return
 				}
 				plan, prepareErr := workflow.Prepare(a.selected, name, dispatched)
 				if prepareErr != nil {
 					workflow.Reject(lifecycle.WithSchedule(workCtx, due), a.attribution(name), lifecycle.PreparationFailed)
-					report("workflow %q failed: %v", name, prepareErr)
+					report("workflow %q failed; %s: %v", name, a.skippedTasks(name), prepareErr)
 					return
 				}
 				report("workflow %q dispatching (scheduled %s)", name, due.UTC().Format(time.RFC3339))
@@ -178,12 +178,12 @@ func (a *Agent) Run(ctx context.Context, stdout, stderr io.Writer) error {
 				// Output can block or the wall clock can jump during preparation.
 				if now := a.clock.Now(); now.Before(due) || !now.Before(due.Add(time.Minute)) {
 					a.skippedRun(workCtx, name, due, lifecycle.Expired)
-					report("workflow %q skipped: occurrence is no longer current", name)
+					report("workflow %q skipped: occurrence is no longer current; %s", name, a.skippedTasks(name))
 					return
 				}
 				result, runErr := execute(lifecycle.WithSchedule(workCtx, due), plan)
 				if errors.Is(runErr, runlock.ErrBusy) {
-					report("workflow %q skipped: already running", name)
+					report("workflow %q skipped: already running; %s", name, result.Tasks)
 					return
 				}
 				outcome := "failed"
@@ -198,10 +198,14 @@ func (a *Agent) Run(ctx context.Context, stdout, stderr io.Writer) error {
 					outcome = "interrupted"
 				}
 				remaining := len(plan.Stages) - len(result.Stages)
+				skipped := ""
+				if remaining > 0 {
+					skipped = fmt.Sprintf("; %d stage(s) not started", remaining)
+				}
 				if runErr != nil {
-					report("workflow %q %s; %d stage(s) not started: %v", name, outcome, remaining, runErr)
+					report("workflow %q %s%s; %s: %v", name, outcome, skipped, result.Tasks, runErr)
 				} else {
-					report("workflow %q %s; %d stage(s) not started", name, outcome, remaining)
+					report("workflow %q %s%s; %s", name, outcome, skipped, result.Tasks)
 				}
 			}()
 		}
@@ -227,6 +231,14 @@ func (a *Agent) Run(ctx context.Context, stdout, stderr io.Writer) error {
 
 func (a *Agent) skippedRun(ctx context.Context, name string, due time.Time, reason lifecycle.Reason) {
 	workflow.Skip(lifecycle.WithSchedule(ctx, due), a.attribution(name), reason)
+}
+
+func (a *Agent) skippedTasks(name string) workflow.TaskCounts {
+	counts := workflow.TaskCounts{}
+	for _, stage := range a.selected.Workflows[name].Stages {
+		counts.Skipped += len(stage.Tasks)
+	}
+	return counts
 }
 
 func (a *Agent) attribution(name string) workflow.Plan {

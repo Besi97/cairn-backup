@@ -96,6 +96,9 @@ func main() {
 	}
 	fmt.Fprint(os.Stdout, "stdout diagnostic\n")
 	fmt.Fprint(os.Stderr, "stderr diagnostic\n")
+	if records := os.Getenv("FAKE_LOG_RECORDS"); records != "" {
+		fmt.Fprint(os.Stderr, records)
+	}
 	if os.Getenv("FAKE_OUTPUT_FLOOD") == "yes" {
 		// Keep writing until a failed parent output copy closes the pipe.
 		// Go terminates writes to closed stdout with SIGPIPE.
