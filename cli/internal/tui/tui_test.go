@@ -25,18 +25,19 @@ func TestNavigation(t *testing.T) {
 		name string
 		code rune
 		mod  tea.KeyMod
+		want page
 	}{
-		{"tab", tea.KeyTab, 0}, {"back tab", tea.KeyTab, tea.ModShift},
-		{"right", tea.KeyRight, 0}, {"left", tea.KeyLeft, 0},
-		{"vim right", 'l', 0}, {"vim left", 'h', 0}, {"help", '?', 0},
+		{"tab", tea.KeyTab, 0, workflowsPage}, {"back tab", tea.KeyTab, tea.ModShift, helpPage},
+		{"right", tea.KeyRight, 0, workflowsPage}, {"left", tea.KeyLeft, 0, helpPage},
+		{"vim right", 'l', 0, workflowsPage}, {"vim left", 'h', 0, helpPage}, {"help", '?', 0, helpPage},
 	} {
 		t.Run(key.name, func(t *testing.T) {
 			m := sizedModel()
 			m, cmd := press(m, key.code, key.mod)
-			if cmd != nil || m.page != helpPage || !strings.Contains(m.View().Content, "Keyboard help") {
-				t.Fatalf("did not open Help: %q", m.View().Content)
+			if cmd != nil || m.page != key.want {
+				t.Fatalf("page = %v, want %v", m.page, key.want)
 			}
-			m, _ = press(m, key.code, key.mod)
+			m, _ = press(m, tea.KeyEscape, 0)
 			if m.page != homePage || !strings.Contains(m.View().Content, "Configuration:") {
 				t.Fatal("did not return to Home")
 			}
@@ -62,7 +63,7 @@ func TestQuitAndInterrupt(t *testing.T) {
 	if _, ok := cmd().(tea.InterruptMsg); !ok {
 		t.Fatal("ctrl+c did not interrupt")
 	}
-	_, cmd = press(m, 'r', 0)
+	_, cmd = press(m, 'x', 0)
 	if cmd != nil {
 		t.Fatal("unbound key started work")
 	}

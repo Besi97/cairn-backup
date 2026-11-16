@@ -23,6 +23,28 @@ invalid configuration exits with `3`. An explicitly empty `--config` is an error
 The terminal interface uses the same selection and validation rules. Standalone
 operations do not discover configuration.
 
+### Browse configuration in the terminal
+
+Run `cairn` or `cairn tui` in a terminal, optionally with `--config PATH`.
+Tab switches between Home, Workflows, Configuration, and Help. In Workflows,
+use the arrows or `j`/`k` to select a workflow, then Enter to browse its ordered
+stages and tasks. Select a task and press Enter to follow its repository reference.
+`y` opens the workflow or repository YAML; Esc returns. Page Up/Down or `b`/`f`
+scroll long details.
+
+The YAML is a sanitized, normalized snapshot of the validated input, not a
+verbatim file or a dump of resolved runtime defaults. Relative paths remain as
+configured. Comments and anchors are omitted, inline passphrases and embedded
+location passwords are redacted, and terminal controls are escaped. Ordinary
+repository locations and credential-file paths remain visible; credential files
+are never opened for display.
+
+Press `r` to reread and validate only the selected path. A successful reload
+replaces the TUI snapshot; failure retains the previous one and shows a safe
+error without rejected values. There are no automatic rereads, edits, or operation
+controls. Reloading the TUI does **not** reload or restart an agent: its startup
+snapshot is separate, and the TUI does not observe its status.
+
 No Borg installation or network access is needed. Checking does not open
 passphrase/identity files or require repository/source paths to exist. It cannot
 verify credentials or repository health. Inline passphrases necessarily enter
