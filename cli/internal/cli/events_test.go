@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -254,10 +255,11 @@ func TestTUIBrowsingDoesNotEmitLifecycle(t *testing.T) {
 			}
 		}
 	}()
+	escapes := regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]`)
 	waitFor := func(text string) {
 		t.Helper()
 		output := ""
-		for !strings.Contains(output, text) {
+		for !strings.Contains(escapes.ReplaceAllString(output, ""), text) {
 			select {
 			case chunk := <-chunks:
 				output += chunk
@@ -289,7 +291,7 @@ func TestTUIBrowsingDoesNotEmitLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	send("r")
-	waitFor("Previous TUI snapshot retained.")
+	waitFor("cannot read or validate")
 	send("q")
 	// Drain terminal output while Bubble Tea restores the screen.
 	for {
