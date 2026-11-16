@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/Besi97/cairn-backup/cli/internal/cancellation"
+	"github.com/Besi97/cairn-backup/cli/internal/lifecycle"
 
 	"github.com/spf13/cobra"
 )
@@ -37,6 +38,11 @@ func (e *exitError) Unwrap() error { return e.err }
 
 // Run executes one invocation with isolated arguments and output streams.
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version string) int {
+	defer func() {
+		if lifecycle.Err(ctx) != nil {
+			fmt.Fprintln(stderr, "Warning: lifecycle event delivery failed; operation outcomes are unchanged.")
+		}
+	}()
 	cmd := newRootCommand(version)
 	cmd.SetArgs(args)
 	cmd.SetOut(stdout)

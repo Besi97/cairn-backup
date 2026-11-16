@@ -401,6 +401,10 @@ arrays, environment overrides, and the working directory; the runner neither
 loads configuration nor invokes a shell. Results distinguish success, warnings,
 failures, and interruption while retaining the process exit code.
 
+`internal/lifecycle` reports typed run, stage, and task events independently of
+human output and Borg diagnostics. See the [event API](../docs/lifecycle-events.md)
+for observer delivery, attribution, outcomes, and skip reasons.
+
 ## Locking
 
 Borg's repository and cache locks remain authoritative across Cairn invocations,
