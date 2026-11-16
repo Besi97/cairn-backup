@@ -6,6 +6,33 @@ scheduler. See the [installation guide](../docs/installation.md) and optional
 [systemd setup](../docs/systemd.md). Install stable Borg 1.x
 (at least 1.2.8) separately; SSH repositories also require OpenSSH.
 
+## Terminal interface
+
+Run `cairn` or `cairn tui` to open the read-only terminal interface:
+
+```sh
+cairn
+cairn --config ./config.yaml
+cairn tui --config ./config.yaml
+```
+
+Both standard input and standard output must be terminals. Otherwise bare `cairn`
+prints help and succeeds, while `cairn tui` reports an error and exits `3`.
+`--help` always prints CLI help without loading configuration.
+
+The interface loads and validates one configuration at startup, using the same
+user-then-system discovery as configured CLI commands. Missing or invalid
+configuration exits `3`; `--config ""` is invalid. Configuration is read-only:
+no credential files, repositories, or source paths are accessed. Home shows the
+selected configuration path; configuration contents and secrets are not displayed.
+Quit and reopen to load another configuration.
+
+Use Tab/Shift+Tab, left/right arrows, or h/l to switch between Home and Help.
+`?` toggles Help, Escape returns Home, up/down or j/k scroll, and Page Up/Page Down
+or b/f scroll a page. `q` quits successfully; Ctrl+C exits `130`. Resizing preserves
+the selected view; very small terminals show a resize hint and still accept keys.
+Closing the interface does not stop the agent or unrelated runs.
+
 ## Backup
 
 Back up to an existing local or SSH repository without configuration or a running

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
@@ -35,6 +36,7 @@ func TestMain(m *testing.M) {
 }
 
 type observedOutput struct {
+	ctx     context.Context
 	mu      sync.Mutex
 	buffer  bytes.Buffer
 	changed chan struct{}
@@ -59,15 +61,37 @@ func (o *observedOutput) text() string {
 
 func (o *observedOutput) await(t *testing.T, text string) {
 	t.Helper()
-	deadline := time.NewTimer(20 * time.Second)
-	defer deadline.Stop()
 	for !strings.Contains(o.text(), text) {
 		select {
 		case <-o.changed:
-		case <-deadline.C:
+		case <-o.ctx.Done():
 			t.Fatalf("did not report %q:\n%s", text, o.text())
 		}
 	}
+}
+
+func TestObservedOutputUsesAgentDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+		defer cancel()
+		output := &observedOutput{ctx: ctx, changed: make(chan struct{}, 1)}
+		start := time.Now()
+		go func() {
+			time.Sleep(21 * time.Second)
+			_, _ = output.Write([]byte("workflow completed"))
+		}()
+		output.await(t, "workflow completed")
+		if elapsed := time.Since(start); elapsed != 21*time.Second {
+			t.Fatalf("observation returned after %s, want 21s", elapsed)
+		}
+	})
+}
+
+func TestObservedAgentShutdown(t *testing.T) {
+	a, _ := newTestAgent(t, definition("nightly", "* * * * *", "UTC"), instant("2026-01-01T00:00:00Z"))
+	output, cancel, _ := runObserved(t, a)
+	cancel()
+	output.await(t, "agent: stopped")
 }
 
 func realBorg(t *testing.T) string {
@@ -117,11 +141,14 @@ func borgCommand(t *testing.T, binary string, args ...string) []byte {
 
 func runObserved(t *testing.T, a *Agent) (*observedOutput, context.CancelFunc, <-chan error) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
-	output := &observedOutput{changed: make(chan struct{}, 1)}
+	observationCtx, stopObserving := context.WithTimeout(t.Context(), time.Minute)
+	// Observe shutdown after explicit cancellation, within the same deadline.
+	ctx, cancel := context.WithCancel(observationCtx)
+	output := &observedOutput{ctx: observationCtx, changed: make(chan struct{}, 1)}
 	done := make(chan error, 1)
 	go func() { done <- a.Run(ctx, output, output) }()
 	t.Cleanup(func() {
+		defer stopObserving()
 		cancel()
 		select {
 		case err := <-done:
