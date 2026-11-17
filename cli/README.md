@@ -79,6 +79,26 @@ byte-exact restore selectors.** Terminal controls are escaped. See the
 For optional read-only archive mounts, see [archive mounting](../docs/archive-mounting.md).
 Mounting requires separately configured FUSE and keeps Cairn in the foreground.
 
+## Restore
+
+```sh
+cairn restore --repository /backups/repo --archive-name snapshot \
+  --destination ./recovered --dry-run Documents
+cairn restore --repository /backups/repo --archive-name snapshot \
+  --destination ./recovered Documents
+```
+
+Restore literal archive-relative path prefixes, or omit paths for the whole
+archive. Existing destinations require terminal confirmation or `--allow-existing`;
+both authorize replacing conflicting files. Preview does not change the
+destination or require confirmation. Native Borg metadata restoration is retained.
+
+The repository and destination must be trusted and unchanged by other processes;
+this is not a sandbox or transaction. Preflight rejects unsafe paths and symlink
+traversal, but failures can leave partial replacements. Inspection's potentially
+lossy display names are not byte-exact restore selectors.
+See [manual restore](../docs/restore.md) for selection, safety, and preview details.
+
 ## Backup
 
 Back up to an existing local or SSH repository without configuration or a running

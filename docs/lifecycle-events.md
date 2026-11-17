@@ -1,7 +1,7 @@
 # Lifecycle events
 
 `cli/internal/lifecycle` is the shared internal event API for configured manual
-and scheduled workflows and standalone backup, prune, compact, and check runs. It is
+and scheduled workflows and standalone backup, prune, compact, check, and restore runs. It is
 not a JSON CLI mode or a persistent history store. Human output, Borg diagnostics,
 exit codes, and file-lock coordination retain their existing contracts.
 
@@ -34,12 +34,14 @@ Callback error text is never put in events or CLI output.
 - `Source` is `manual` or `scheduled`. `ScheduledAt` identifies the due instant
   for scheduled work; an expired-occurrence report can summarize several missed
   occurrences using the first expired instant. No missed-work queue is built.
-- `Workflow` is the configured name. `Operation` is backup, prune, compact, or check;
+- `Workflow` is the configured name. `Operation` is backup, prune, compact, check, or restore;
   task events also carry a configured `Repository` alias. Standalone runs omit
   repository attribution rather than recording a possibly sensitive location.
   `Preview` distinguishes standalone dry runs.
   Both check verification modes use `check` and the same normalized outcomes;
   events do not contain verification flags or imply that warnings are clean checks.
+  Manual-only restore uses one run/task across preflight and extraction, with
+  `Preview` for dry runs; it has no configured workflow counterpart.
 - `ConfigID` is the opaque canonical-configuration digest from
   `runlock.Identity.Digest()`, captured at configured execution entry points.
   Scheduled skips and preparation failures carry the same identity. Standalone

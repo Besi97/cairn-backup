@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"syscall"
 	"time"
@@ -93,6 +94,21 @@ func main() {
 			panic(err)
 		}
 		_ = file.Close()
+	}
+	if dir := os.Getenv("FAKE_RESTORE_DATA"); dir != "" {
+		for _, operation := range []string{"list", "export-tar"} {
+			if slices.Contains(os.Args[1:], operation) {
+				fmt.Fprint(os.Stderr, os.Getenv("FAKE_RESTORE_PREFLIGHT_LOG_RECORDS"))
+				file, err := os.Open(filepath.Join(dir, operation))
+				if err != nil {
+					panic(err)
+				}
+				_, _ = io.Copy(os.Stdout, file)
+				_ = file.Close()
+				code, _ := strconv.Atoi(os.Getenv("FAKE_PREFLIGHT_EXIT"))
+				os.Exit(code)
+			}
+		}
 	}
 	fmt.Fprint(os.Stdout, "stdout diagnostic\n")
 	fmt.Fprint(os.Stdout, os.Getenv("FAKE_STDOUT"))
