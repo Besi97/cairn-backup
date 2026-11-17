@@ -57,6 +57,19 @@ Page Up/Page Down or b/f scroll a page. `q` quits successfully; Ctrl+C exits `13
 Resizing preserves the selected view; very small terminals show a resize hint
 and still accept keys. Closing the interface does not stop the agent or unrelated runs.
 
+Wide terminals (at least 100 columns and 16 rows) show a selection list beside a
+grouped inspector. Up/down changes the selection; Page Up/Page Down scrolls its
+details independently. Narrower terminals use full-width lists and Enter/Escape
+detail navigation. In a narrow workflow view, Enter opens the selected task before
+following its repository.
+Likewise, narrow archive views open repository or archive metadata before Enter
+continues to the next listing.
+
+Configuration opens as an overview rather than raw YAML. `y` opens sanitized YAML
+from Configuration, a workflow, or a configured repository; Escape returns.
+Colour highlights selection, headings, and recorded outcomes. Text indicators remain
+available without colour; `NO_COLOR=1` disables styling.
+
 ### History browser
 
 History shows local run summaries, newest last-event first. Enter opens details;
@@ -81,7 +94,8 @@ Enter submits it and scans the **whole archive**, not just retained rows. An emp
 query browses all paths. Search text is limited to 1 KiB. Escape discards an edit.
 Each listing retains at most 1,000 matching rows / 8 MiB of metadata, in Borg order;
 larger results are explicitly marked **TRUNCATED**, while the scan continues.
-Long displayed values are shortened with a label; stored metadata is unchanged.
+Lists abbreviate long names with an ellipsis; the inspector or detail view shows
+more. Very long detail values are shortened with a label; stored metadata is unchanged.
 Enter on a file shows type, permissions, size, timestamp, ownership, link target,
 and Borg's stored healthy marker, not contents or a fresh integrity check.
 

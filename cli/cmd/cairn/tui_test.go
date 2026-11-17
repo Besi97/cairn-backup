@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/creack/pty"
 )
 
@@ -111,7 +112,10 @@ func (s *terminalSession) waitForAfter(t *testing.T, text string, offset int) {
 	timeout := time.NewTimer(10 * time.Second)
 	defer timeout.Stop()
 	for {
-		if strings.Contains(s.text()[offset:], text) {
+		raw := s.text()[offset:]
+		output := strings.Join(strings.Fields(ansi.Strip(raw)), " ")
+		if strings.HasPrefix(text, "\x1b") && strings.Contains(raw, text) ||
+			strings.Contains(output, strings.Join(strings.Fields(text), " ")) {
 			return
 		}
 		select {
@@ -235,21 +239,21 @@ func TestTUITerminal(t *testing.T) {
 			}
 			s.waitForAfter(t, want, offset)
 		}
-		send("\t", "enter workflow")
-		send("\r", "Cron: * * * * *")
+		send("\t", "Enter inspects tasks")
+		send("\r", "Stage 1 / Task 1")
 		send("\r", "Referenced by nightly")
 		send("y", "Section: repositories / local")
-		send("\x1b", "y repository YAML")
-		send("\x1b", "Stages run in order")
-		send("\x1b", "enter workflow")
-		send("\t", "Normalized YAML; configured paths")
+		send("\x1b", "enter list archives")
+		send("\x1b", "Task 1: backup")
+		send("\x1b", "Enter inspects tasks")
+		send("\t", "Configuration source:")
 		if err := os.WriteFile(path, []byte("version: never-display-this\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		send("r", "Previous TUI snapshot retained")
 		writeTUIConfig(t, dir, strings.ReplaceAll(tuiConfig, "nightly", "reloaded-workflow"))
 		send("r", "Agent snapshot unchanged")
-		send("\x1b", "Read-only terminal interface.")
+		send("\x1b", "Overview")
 		send("\t", "reloaded-workflow")
 		if _, err := io.WriteString(s.file, "q"); err != nil {
 			t.Fatal(err)
@@ -390,13 +394,13 @@ func TestTUIArchiveTerminal(t *testing.T) {
 				}
 				s.waitForAfter(t, want, offset)
 			}
-			send("\t\t\t", "enter list archives")
-			send("\r", "2026-11-16  files")
+			send("\t\t\t", "Repository: local")
+			send("\r", "> files")
 			send("\r", "TRUNCATED")
 			send("/needle\r", "last/needle")
 			send("\r", "Size: 4999 bytes")
-			send("\x1b", "Search (literal")
-			send("\x1b", "2026-11-16  slow")
+			send("\x1b", "> last/needle")
+			send("\x1b", "slow")
 			if _, err := io.WriteString(s.file, "j\r"); err != nil {
 				t.Fatal(err)
 			}

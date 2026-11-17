@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -278,9 +277,6 @@ func (m Model) updateScan(update scanUpdate) (tea.Model, tea.Cmd) {
 		}
 	}
 	m.refresh()
-	if m.page == archiveListPage || m.page == fileListPage {
-		m.revealSelection()
-	}
 	if update.done {
 		return m, nil
 	}
@@ -296,89 +292,4 @@ func displayMetadata(value string, limit int) string {
 		return config.DisplayText(value[:end]) + "… [display shortened]"
 	}
 	return config.DisplayText(value)
-}
-
-func (m Model) browserText() string {
-	b := m.browser
-	var text strings.Builder
-	switch m.page {
-	case archivesPage:
-		text.WriteString("Repositories\n\n↑/↓ select · enter list archives · esc home\n\n")
-		names := m.repositoryNames()
-		if len(names) == 0 {
-			text.WriteString("No repositories configured.")
-		}
-		for i, name := range names {
-			marker := "  "
-			if i == b.repository {
-				marker = "> "
-			}
-			fmt.Fprintf(&text, "%s%s\n", marker, config.DisplayText(name))
-		}
-	case archiveListPage, fileListPage:
-		fmt.Fprintf(&text, "Repository: %s\n", config.DisplayText(b.name))
-		if m.page == fileListPage {
-			fmt.Fprintf(&text, "Archive: %s\nSearch (literal, case-sensitive path): %s\n",
-				displayMetadata(string(b.archive.Name), 512), displayMetadata(b.query, maxQueryBytes))
-		}
-		if b.loading {
-			text.WriteString("Scanning… results are partial. Esc cancels and returns.\n")
-		} else {
-			text.WriteString(b.outcome + "\n")
-		}
-		fmt.Fprintf(&text, "%d scanned · %d matched · %d retained (limit 1,000 / 8 MiB)\n",
-			b.scanned, b.matched, len(b.rows))
-		if b.truncated {
-			text.WriteString("TRUNCATED: some matching metadata is not retained; scan still covers the whole listing.\n")
-		}
-		if m.page == fileListPage {
-			text.WriteString("↑/↓ select · enter details · / search whole archive · esc archives\n")
-			if b.editing {
-				fmt.Fprintf(&text, "Search> %s_\nEnter scans from start; Esc discards edit.\n", config.DisplayText(b.input))
-			}
-		} else {
-			text.WriteString("↑/↓ select · enter browse files · esc back\n")
-		}
-		text.WriteString("Names/paths are lossy display text, NOT exact restore selectors.\n\n")
-		if len(b.rows) == 0 {
-			text.WriteString("No retained results.")
-		}
-		start := max(0, b.cursor-max(1, m.height-14)/2)
-		end := min(len(b.rows), start+max(1, m.height-14))
-		if start > 0 {
-			fmt.Fprintf(&text, "… %d earlier retained rows\n", start)
-		}
-		for i := start; i < end; i++ {
-			row, marker := b.rows[i], "  "
-			if i == b.cursor {
-				marker = "> "
-			}
-			if m.page == fileListPage {
-				fmt.Fprintf(&text, "%s%s  %d B  %s\n", marker,
-					displayMetadata(row.file.Type, 16), row.file.Size,
-					displayMetadata(string(row.file.Path), max(24, m.width-30)))
-			} else {
-				fmt.Fprintf(&text, "%s%s  %s\n", marker, displayMetadata(row.archive.Start, 40),
-					displayMetadata(string(row.archive.Name), max(24, m.width-45)))
-			}
-		}
-		if end < len(b.rows) {
-			fmt.Fprintf(&text, "… %d later retained rows", len(b.rows)-end)
-		}
-	case filePage:
-		if b.cursor >= len(b.rows) {
-			break
-		}
-		f := b.rows[b.cursor].file
-		fmt.Fprintf(&text, "File metadata · esc returns to results\n\n"+
-			"Path (lossy display, NOT an exact restore selector): %s\n"+
-			"Type: %s\nMode: %s\nSize: %d bytes\nModified: %s\nUID: %d\nGID: %d\n"+
-			"Link target (lossy display): %s\nHealthy marker: %t\n\n"+
-			"Stored metadata only; no file contents or integrity verification.\n"+
-			"The healthy marker is Borg's stored replacement-chunk status, not a fresh check.",
-			displayMetadata(string(f.Path), 16384), displayMetadata(f.Type, 64),
-			displayMetadata(f.Mode, 128), f.Size, displayMetadata(f.Mtime, 128),
-			f.UID, f.GID, displayMetadata(string(f.LinkTarget), 16384), f.Healthy)
-	}
-	return text.String()
 }

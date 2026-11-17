@@ -13,6 +13,7 @@ import (
 	"github.com/Besi97/cairn-backup/cli/internal/archive"
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
 	"github.com/Besi97/cairn-backup/cli/internal/config"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func archiveModel(t *testing.T, source metadataSource) Model {
@@ -77,18 +78,18 @@ func TestArchiveBrowseAndFullSearch(t *testing.T) {
 	contains(t, m, "> local", "remote")
 	m, cmd := press(m, tea.KeyEnter, 0)
 	m = finishScan(t, m, cmd)
-	contains(t, m, "Complete.", "2 scanned", "> 2026  first")
+	contains(t, m, "Complete.", "2 scanned", "> first", "2026")
 	m, _ = press(m, 'j', 0)
 	m, cmd = press(m, tea.KeyEnter, 0)
 	m = finishScan(t, m, cmd)
-	contains(t, m, "Archive: second", "100000 scanned", "1000 retained", "TRUNCATED", "NOT exact restore selectors")
+	contains(t, m, "Files / second", "100000 scanned", "1000 retained", "TRUNCATED", "NOT exact restore selectors")
 	if len(m.browser.rows) != maxBrowseRows {
 		t.Fatalf("retained %d rows", len(m.browser.rows))
 	}
 	for range 30 {
 		m, _ = press(m, 'j', 0)
 	}
-	contains(t, m, "> -  30 B  path/000030")
+	contains(t, m, "> path/000030", "- · 30 B")
 	m, _ = press(m, tea.KeyEnter, 0)
 	contains(t, m, "Path (lossy display", "Size: 30 bytes", "UID: 0", "Healthy marker: false")
 	m, _ = press(m, tea.KeyEscape, 0)
@@ -233,7 +234,7 @@ func TestBrowserEscapingEmptyAndSearchBounds(t *testing.T) {
 	m = finishScan(t, next.(Model), cmd)
 	m, _ = press(m, tea.KeyEnter, 0)
 	contains(t, m, `a\x1b[31m\nb`, `\x1b]0;x\a`, `\u202e`, `target\n`, "UID: 12", "GID: 34")
-	if strings.ContainsAny(m.body.GetContent(), "\x1b\r\a\u202e") {
+	if strings.ContainsAny(ansi.Strip(m.body.GetContent()), "\x1b\r\a\u202e") {
 		t.Fatal("metadata injected terminal controls")
 	}
 	m, _ = press(m, tea.KeyEscape, 0)
