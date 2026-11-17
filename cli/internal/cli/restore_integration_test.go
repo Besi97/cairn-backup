@@ -81,6 +81,21 @@ func TestRealBorgRestore(t *testing.T) {
 					t.Fatal("secret leaked")
 				}
 			}
+			for _, step := range []struct {
+				args []string
+				want string
+			}{
+				{[]string{"archive", "list", "--repository=repo", "--passphrase-file=passphrase"}, `"snapshot"`},
+				{[]string{"archive", "inspect", "--repository=repo", "--archive-name=snapshot", "--passphrase-file=passphrase"}, `"tree/file"`},
+			} {
+				var stdout, stderr bytes.Buffer
+				if code := Run(ctx, step.args, &stdout, &stderr, "test"); code != 0 || !strings.Contains(stdout.String(), step.want) {
+					t.Fatalf("discovery args=%q code=%d stdout=%s stderr=%s", step.args, code, &stdout, &stderr)
+				}
+				if strings.Contains(stdout.String()+stderr.String(), secret) {
+					t.Fatal("secret leaked")
+				}
+			}
 			run(append(append([]string(nil), args...), "--dry-run"), 0)
 			if _, err := os.Stat("new"); !errors.Is(err, os.ErrNotExist) {
 				t.Fatal("preview created destination")
@@ -120,6 +135,10 @@ func TestRealBorgRestore(t *testing.T) {
 			}
 			// A single hardlink slave must restore its contents even without its master.
 			selected := []string{"archive", "restore", "--repository=repo", "--archive-name=snapshot", "--destination=selected", "--passphrase-file=passphrase", "tree/hardlink"}
+			run(append(append([]string(nil), selected...), "--dry-run"), 0)
+			if _, err := os.Stat("selected"); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("selected preview created destination")
+			}
 			run(selected, 0)
 			if got, err := os.ReadFile("selected/tree/hardlink"); err != nil || string(got) != "contents: file" {
 				t.Fatalf("selected hardlink=%q error=%v", got, err)

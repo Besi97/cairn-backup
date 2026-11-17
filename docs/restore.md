@@ -1,16 +1,97 @@
 # Manual restore
 
+## Find, preview, recover, verify
+
+Use this walkthrough for a recovery drill or to recover into a separate directory.
+You need Cairn, supported Borg 1.x (at least 1.2.8), the repository location, and
+its credentials. No configuration or running agent is needed. If Cairn is
+unavailable, follow [recovery with native Borg](recovery.md) instead.
+
+Replace the example repository, archive name, and file paths below. These examples
+use a local unencrypted repository. For encrypted repositories, add
+`--passphrase-file /absolute/path/to/passphrase` to **every Cairn command** below;
+protect that file with mode `0600`, and never put the secret itself in a command.
+For SSH, use a location such as `ssh://backup@backup-host/./repo` and add
+`--identity-file /absolute/path/to/identity` if needed. Verify the host key and
+prepare `known_hosts` first; SSH keys must already be usable noninteractively.
+
+### 1. Find the archive and the files
+
+```sh
+cairn archive list --repository /backups/repo
+cairn archive inspect --repository /backups/repo --archive-name documents-before-upgrade
+```
+
+Choose the intended archive by name and time, then look for the expected paths.
+Inspection shows metadata, not file contents or an integrity check. Archive paths
+depend on how the backup was made: `Documents/report.txt` is only an example,
+not necessarily the original absolute source path. Names are quoted for display;
+do not include those display quotes as filename bytes. Listings can be lossy for
+non-text names: **never use display text as a byte-exact selector**. For the
+selected-file example below, supply the original known filename bytes. If those
+are unavailable, restore the whole archive instead of guessing.
+
+### 2. Preview into a fresh recovery location
+
+Use trusted repository and destination directories, unchanged by other processes.
+Do not restore over a live tree. Create a private parent outside the repository;
+leave the actual destination absent so no replacement authorization is needed:
+
+```sh
+RECOVERY=$(mktemp -d "$HOME/cairn-recovery.XXXXXX") || exit 1
+printf 'Recovery directory: %s\n' "$RECOVERY"
+cairn archive restore --repository /backups/repo --archive-name documents-before-upgrade \
+  --destination "$RECOVERY/selected" --dry-run Documents/report.txt
+```
+
+Check the exit code and diagnostics before continuing. A successful preview reads
+selected data but creates no destination and does not prove later filesystem
+writes will succeed. Warnings are not success.
+
+### 3. Recover selected files or the whole archive
+
+Repeat the selection without `--dry-run`:
+
 ```sh
 cairn archive restore --repository /backups/repo --archive-name documents-before-upgrade \
-  --destination ./recovered --dry-run Documents
-
-cairn archive restore --repository /backups/repo --archive-name documents-before-upgrade \
-  --destination ./recovered Documents
-
-# No paths selects the whole archive.
-cairn archive restore --repository ssh://user@host/./repo --archive-name snapshot \
-  --destination ./recovered --passphrase-file ./passphrase --identity-file ~/.ssh/backup
+  --destination "$RECOVERY/selected" Documents/report.txt
 ```
+
+For a directory and all its descendants, use `Documents` instead. To recover the
+whole archive, omit selectors and use another fresh destination:
+
+```sh
+cairn archive restore --repository /backups/repo --archive-name documents-before-upgrade \
+  --destination "$RECOVERY/whole" --dry-run
+cairn archive restore --repository /backups/repo --archive-name documents-before-upgrade \
+  --destination "$RECOVERY/whole"
+```
+
+Stop on any nonzero exit and inspect diagnostics and partial results before
+deciding what to do next. If you reuse an existing destination, terminal
+confirmation or `--allow-existing` explicitly permits conflicting replacements
+and directory metadata changes. Prefer another fresh destination for a retry.
+
+### 4. Verify before copying anything back
+
+Open important recovered files with the appropriate application and compare them
+with independently kept known-good copies or checksums, if available. For example,
+when a trusted reference copy exists:
+
+```sh
+cmp /safe/reference/report.txt "$RECOVERY/selected/Documents/report.txt"
+```
+
+No output and exit `0` means equal bytes. Also check expected directories,
+permissions, timestamps, and links; native Borg restores metadata subject to your
+account and filesystem. Do not follow recovered symlinks without inspecting their
+targets. Only copy verified data back deliberately.
+
+A successful backup or scheduled integrity check is not a restore test. Practice
+this drill with real extraction and content verification before an emergency.
+No mount or FUSE setup is required.
+
+## Command requirements
 
 Restore, mount, and unmount live under `cairn archive` and require
 `--destination DIR`. Restore's positional arguments are archive-path selectors.
