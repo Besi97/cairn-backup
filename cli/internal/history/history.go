@@ -68,52 +68,91 @@ type snapshot struct {
 type Store struct {
 	mu        sync.Mutex
 	directory *os.File
+	readOnly  bool
+	closed    bool
 }
 
 func Open() (*Store, error) {
-	state := os.Getenv("XDG_STATE_HOME")
-	if !filepath.IsAbs(state) {
-		home := os.Getenv("HOME")
-		if !filepath.IsAbs(home) {
-			return nil, ErrUnavailable
-		}
-		state = filepath.Join(home, ".local", "state")
+	state, err := statePath()
+	if err != nil {
+		return nil, err
 	}
 	return open(state)
 }
 
-func open(state string) (*Store, error) {
-	if err := os.MkdirAll(state, 0700); err != nil {
-		return nil, ErrUnavailable
+// OpenReadOnly opens existing history without creating files or taking locks.
+// Missing storage is empty; unsafe or unreadable storage is unavailable.
+// Reopen on refresh to discover directories that were absent at open time.
+func OpenReadOnly() (*Store, error) {
+	state, err := statePath()
+	if err != nil {
+		return nil, err
 	}
-	base, err := os.Open(state)
+	return openStore(state, true)
+}
+
+func statePath() (string, error) {
+	state := os.Getenv("XDG_STATE_HOME")
+	if !filepath.IsAbs(state) {
+		home := os.Getenv("HOME")
+		if !filepath.IsAbs(home) {
+			return "", ErrUnavailable
+		}
+		state = filepath.Join(home, ".local", "state")
+	}
+	return state, nil
+}
+
+func open(state string) (*Store, error) {
+	return openStore(state, false)
+}
+
+func openStore(state string, readOnly bool) (*Store, error) {
+	if !readOnly {
+		if err := os.MkdirAll(state, 0700); err != nil {
+			return nil, ErrUnavailable
+		}
+	}
+	fd, err := syscall.Open(state, syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_CLOEXEC, 0)
+	if readOnly && errors.Is(err, os.ErrNotExist) {
+		return &Store{readOnly: true}, nil
+	}
 	if err != nil {
 		return nil, ErrUnavailable
 	}
+	base := os.NewFile(uintptr(fd), state)
 	defer base.Close()
 	info, err := base.Stat()
 	if err != nil || !info.IsDir() || info.Sys().(*syscall.Stat_t).Uid != uint32(os.Geteuid()) || info.Mode().Perm()&0022 != 0 {
 		return nil, ErrUnavailable
 	}
-	cairn, err := child(base, "cairn")
+	cairn, err := child(base, "cairn", !readOnly)
+	if readOnly && errors.Is(err, syscall.ENOENT) {
+		return &Store{readOnly: true}, nil
+	}
 	if err != nil {
-		return nil, err
+		return nil, ErrUnavailable
 	}
 	defer cairn.Close()
-	directory, err := child(cairn, "history")
-	if err != nil {
-		return nil, err
+	directory, err := child(cairn, "history", !readOnly)
+	if readOnly && errors.Is(err, syscall.ENOENT) {
+		return &Store{readOnly: true}, nil
 	}
-	return &Store{directory: directory}, nil
+	if err != nil {
+		return nil, ErrUnavailable
+	}
+	return &Store{directory: directory, readOnly: readOnly}, nil
 }
 
-func child(parent *os.File, name string) (*os.File, error) {
-	if err := syscall.Mkdirat(int(parent.Fd()), name, 0700); err != nil && !errors.Is(err, syscall.EEXIST) {
-		return nil, ErrUnavailable
+func child(parent *os.File, name string, create bool) (*os.File, error) {
+	if create {
+		if err := syscall.Mkdirat(int(parent.Fd()), name, 0700); err != nil && !errors.Is(err, syscall.EEXIST) {
+			return nil, ErrUnavailable
+		}
 	}
 	fd, err := syscall.Openat(int(parent.Fd()), name, syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
 	if err != nil {
-		return nil, ErrUnavailable
+		return nil, err
 	}
 	f := os.NewFile(uintptr(fd), name)
 	var st syscall.Stat_t
@@ -127,6 +166,7 @@ func child(parent *os.File, name string) (*os.File, error) {
 func (s *Store) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.closed = true
 	if s.directory == nil {
 		return nil
 	}
@@ -145,8 +185,14 @@ func (s *Store) file(name string, flags int) (*os.File, error) {
 	}
 	f := os.NewFile(uintptr(fd), name)
 	var st syscall.Stat_t
-	if syscall.Fstat(fd, &st) != nil || st.Mode&syscall.S_IFMT != syscall.S_IFREG || st.Uid != uint32(os.Geteuid()) ||
-		st.Mode&07777 != 0600 || st.Nlink != 1 {
+	if syscall.Fstat(fd, &st) != nil {
+		f.Close()
+		return nil, ErrUnavailable
+	}
+	// Atomic replacement can unlink an already-open read-only snapshot.
+	retired := s.readOnly && flags == syscall.O_RDONLY && st.Nlink == 0
+	if st.Mode&syscall.S_IFMT != syscall.S_IFREG || st.Uid != uint32(os.Geteuid()) ||
+		st.Mode&07777 != 0600 || (st.Nlink != 1 && !retired) {
 		f.Close()
 		return nil, ErrUnavailable
 	}
@@ -211,11 +257,19 @@ func (s *Store) load() (snapshot, error) {
 func (s *Store) List() ([]Summary, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	lock, err := s.lock()
-	if err != nil {
-		return nil, err
+	if s.closed {
+		return nil, ErrUnavailable
 	}
-	defer lock.Close()
+	if s.readOnly && s.directory == nil {
+		return []Summary{}, nil
+	}
+	if !s.readOnly {
+		lock, err := s.lock()
+		if err != nil {
+			return nil, err
+		}
+		defer lock.Close()
+	}
 	data, err := s.load()
 	if err != nil {
 		return nil, err
@@ -239,6 +293,9 @@ func (s *Store) Observe(event lifecycle.Event) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.readOnly || s.closed {
+		return ErrUnavailable
+	}
 	lock, err := s.lock()
 	if err != nil {
 		return err

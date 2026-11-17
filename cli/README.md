@@ -12,8 +12,20 @@ Run events retain the latest 100 small summaries under
 `$XDG_STATE_HOME/cairn/history` (default `~/.local/state/cairn/history`).
 History contains no Borg logs or credentials, and storage failures warn without
 changing operation outcomes. Missing terminal events remain incomplete, not
-proof of running or failed work. Internal read-time owner/lock observations never
-invent outcomes or acquire execution locks. See
+proof of running or failed work.
+
+```sh
+cairn history
+cairn history --incomplete
+```
+
+Inspect retained runs without configuration, Borg, or creating local state.
+`--incomplete` selects missing terminal events, not active work. Recorded outcomes
+stay separate from momentary owner/lock observations: a gone Cairn owner does not
+mean Borg exited, and an unknown lock does not mean free. Partial records may have
+incomplete task counts. Missing history is empty; unavailable history exits `2`
+with a redacted diagnostic. Successful inspection exits `0` regardless of recorded
+outcomes; invalid arguments exit `3`. See
 [history limits and crash observations](../docs/run-history.md).
 
 ## Terminal interface

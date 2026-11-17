@@ -33,8 +33,7 @@ failed, or interrupted. `partial` means a sequence gap was observed, including
 when the first retained event has sequence greater than one. A terminal partial
 record has a known reported outcome but potentially incomplete counts.
 Recorded outcomes are never rewritten after a restart. Read-time execution
-observations are separate from these facts; there is no inspection command or
-execution recovery in the store.
+observations are separate from these facts; inspection never recovers execution.
 
 The snapshot payload is capped at 512 KiB. Atomic replacement uses at most one
 512 KiB scratch payload, keeping Cairn-generated history file contents within
@@ -44,6 +43,34 @@ no per-task or per-stage list grows with the workflow. Workflow names and run
 IDs exceeding 256 UTF-8 bytes are rejected for history rather than truncated.
 An oversized or malformed store is reported, not silently erased or repaired.
 The cap cannot constrain unrelated files or contents placed there externally.
+
+## CLI inspection
+
+```sh
+cairn history
+cairn history --incomplete
+```
+
+Show all retained runs, newest last-observation first, or only runs without a
+recorded terminal event. No configuration or Borg installation is needed.
+Inspection reads existing atomic snapshots without taking persistence or execution
+locks, creating directories/files, or changing history. Missing storage succeeds
+with “No recorded runs.” (or “No incomplete recorded runs.”); malformed, unsafe,
+oversized, or unreadable storage fails with a redacted diagnostic, not empty history.
+
+Human output quotes run IDs and configured workflow names to escape terminal
+controls. It shows opaque configuration identity, workflow/operation,
+manual/scheduled attribution, preview status, recorded timestamps and sequence,
+outcome/reason, incomplete/partial flags, and terminal task counts. Owner and
+lock observations are separate fields; raw owner identity and lock filenames are
+not printed. Configured workflow names remain attribution, not secret-safe labels.
+There is no machine-output contract or additional filter in this command.
+
+Successful inspection exits `0`, even when records report warning, failure,
+interruption, or unknown outcomes. Storage/output failures exit `2`; invalid
+arguments exit `3`. Diagnostics go to stderr, records to stdout. Missing execution
+evidence is unknown, not an inspection failure. Read-time observations are
+momentary, and age alone never establishes that a run stopped.
 
 ## Concurrency, safety, and failures
 
@@ -119,13 +146,20 @@ persisted, and history remains neither execution authority nor a queue.
 
 ## Internal consumers
 
-`internal/history.Open()` opens the shared store; `Store.Observe(lifecycle.Event)`
+`internal/history.Open()` opens the shared writable store; `Store.Observe(lifecycle.Event)`
 is a lifecycle observer. `Store.List()` returns a newest-first snapshot and
 never infers liveness. `Store.Inspect()` returns newest-first `history.Observation`
 values containing `Summary` and separate `Owner`/`Lock` fields
 (`runlock.OwnerState`/`runlock.LockState`). Storage failures return
 `history.ErrUnavailable`; unavailable execution evidence returns unknown fields,
 not an inspection failure. No configuration file is needed.
+`internal/history.OpenReadOnly()` provides the same `List`/`Inspect` API without
+creating storage or taking any locks. Missing directories/snapshot return an empty
+list; unsafe or unreadable storage still returns `history.ErrUnavailable`.
+Read-only stores reject `Observe`. Atomic snapshot replacement allows readers to
+see a complete old or new snapshot while a writer updates history. If storage was
+missing at open time, reopen on refresh to discover newly created directories.
+CLI and TUI consumers can use these structured observations without parsing text.
 `Store.Close()` releases directory resources. All public
 storage failures return only `history.ErrUnavailable`. The JSON envelope has
 `version: 1` and `runs`; the optional `execution` object preserves readability of
