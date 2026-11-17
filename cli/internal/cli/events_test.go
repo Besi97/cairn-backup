@@ -7,12 +7,14 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Besi97/cairn-backup/cli/internal/history"
 	"github.com/Besi97/cairn-backup/cli/internal/lifecycle"
 	"github.com/creack/pty"
 )
@@ -195,6 +197,22 @@ func TestNonRunCommandsDoNotEmitEvents(t *testing.T) {
 }
 
 func TestTUIBrowsingDoesNotEmitLifecycle(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	store, err := history.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Observe(lifecycle.Event{RunID: "history-pty-run", Sequence: 1, Time: time.Now(),
+		Source: lifecycle.Manual, Kind: lifecycle.RunStarted, Operation: "check"}); err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
+	snapshot := filepath.Join(os.Getenv("XDG_STATE_HOME"), "cairn/history/runs.json")
+	before, err := os.ReadFile(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
 	path := writeWorkflowConfig(t, workflowConfig)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
@@ -292,6 +310,13 @@ func TestTUIBrowsingDoesNotEmitLifecycle(t *testing.T) {
 	}
 	send("r")
 	waitFor("cannot read or validate")
+	send("\t\t\t")
+	waitFor("history-pty-run")
+	send("\r")
+	waitFor("Recorded outcome: unknown")
+	send("g")
+	send("\x1b")
+	waitFor("newest last event first")
 	send("q")
 	// Drain terminal output while Bubble Tea restores the screen.
 	for {
@@ -300,6 +325,10 @@ func TestTUIBrowsingDoesNotEmitLifecycle(t *testing.T) {
 		case err := <-done:
 			if err != nil || len(events) != 0 {
 				t.Fatalf("TUI error=%v unexpected events=%+v", err, events)
+			}
+			after, readErr := os.ReadFile(snapshot)
+			if readErr != nil || !bytes.Equal(before, after) {
+				t.Fatalf("TUI changed history: %v", readErr)
 			}
 			return
 		case <-ctx.Done():

@@ -45,7 +45,7 @@ prints help and succeeds, while `cairn tui` reports an error and exits `3`.
 The interface loads and validates one configuration at startup, using the same
 user-then-system discovery as configured CLI commands. Missing or invalid
 configuration exits `3`; `--config ""` is invalid. Configuration is read-only.
-Home, Workflows, Configuration, and Help do not access credential files,
+Home, Workflows, Configuration, History, and Help do not access credential files,
 repositories, or source paths. Configuration views show sanitized, unresolved
 values: inline credentials are redacted, while ordinary paths and credential-file
 paths remain visible. `r` reloads the selected configuration into the TUI only;
@@ -56,6 +56,16 @@ Escape returns to the parent view, up/down or j/k select or scroll, and
 Page Up/Page Down or b/f scroll a page. `q` quits successfully; Ctrl+C exits `130`.
 Resizing preserves the selected view; very small terminals show a resize hint
 and still accept keys. Closing the interface does not stop the agent or unrelated runs.
+
+### History browser
+
+History shows local run summaries, newest last-event first. Enter opens details;
+`g` explicitly refreshes history without reloading configuration. There is no
+automatic refresh. Recorded outcomes and task totals are separate from momentary
+owner/lock evidence; incomplete does not mean active. Per-stage/task results and
+configuration contents are not retained, so snapshot differences are unknown.
+Inspection never takes execution locks or rewrites history. See
+[local run history](../docs/run-history.md#tui-history).
 
 ### Archive browser
 

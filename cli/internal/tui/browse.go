@@ -29,6 +29,9 @@ func reload(path string) tea.Cmd {
 }
 
 func (m Model) tab() page {
+	if m.page == runPage {
+		return historyPage
+	}
 	if m.page == archiveListPage || m.page == fileListPage || m.page == filePage {
 		return archivesPage
 	}
@@ -92,12 +95,14 @@ func (m Model) schedule(workflow config.Workflow) string {
 func (m *Model) refresh() {
 	var text strings.Builder
 	switch m.page {
+	case historyPage, runPage:
+		text.WriteString(m.historyText())
 	case archivesPage, archiveListPage, fileListPage, filePage:
 		text.WriteString(m.browserText())
 	case homePage:
 		fmt.Fprintf(&text, "Read-only terminal interface.\n\nConfiguration: %s\n\n"+
 			"%d workflows · %d repositories\n\n"+
-			"Tab: browse workflows, configuration and archives. ?: keyboard help.\n"+
+			"Tab: browse workflows, configuration, archives and history. ?: keyboard help.\n"+
 			"r: reload the selected file into this TUI only.\n"+
 			"No agent state is observed; its startup snapshot is separate.\n"+
 			"Use the CLI for backup and repository maintenance.",
@@ -178,6 +183,9 @@ func (m *Model) refresh() {
 			"Esc cancels a scan when leaving its list. Browsing may open credentials and contact repositories.\n" +
 			"Listings retain at most 1,000 rows / 8 MiB. Truncation and partial results are labelled.\n" +
 			"Names and paths are lossy display text, never exact restore selectors.\n" +
+			"History: retained run summaries and task totals, not per-stage/task results.\n" +
+			"Enter opens a summary; g rereads local history; Esc returns. No automatic refresh.\n" +
+			"Recorded outcomes are separate from momentary owner/lock evidence, not live agent state.\n" +
 			"Configuration is a read-only TUI snapshot, not live agent state.\n" +
 			"r validates the selected file and replaces only this TUI snapshot.\n" +
 			"A failed reload keeps the previous snapshot. No automatic rereads.\n" +

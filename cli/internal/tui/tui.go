@@ -23,6 +23,7 @@ const (
 	workflowsPage
 	configurationPage
 	archivesPage
+	historyPage
 	helpPage
 	workflowPage
 	repositoryPage
@@ -30,10 +31,11 @@ const (
 	archiveListPage
 	fileListPage
 	filePage
+	runPage
 )
 
 // Model owns navigation and a validated TUI snapshot, separate from any agent.
-// It only reads configuration and archive metadata, independently of any agent.
+// It only reads configuration, archive metadata and local history.
 type Model struct {
 	selected   *config.Config
 	page       page
@@ -50,6 +52,7 @@ type Model struct {
 	reloading  bool
 	status     string
 	browser    *archiveBrowser
+	history    *historyBrowser
 }
 
 // New opens Home with an already validated configuration.
@@ -61,14 +64,17 @@ func New(selected *config.Config) Model {
 	h.Styles.FullDesc = h.Styles.ShortDesc
 	body := viewport.New()
 	body.SoftWrap = true
-	return Model{selected: selected, keys: newKeyMap(), help: h, body: body, browser: newArchiveBrowser()}
+	return Model{selected: selected, keys: newKeyMap(), help: h, body: body,
+		browser: newArchiveBrowser(), history: newHistoryBrowser()}
 }
 
 // Run uses only the supplied streams and leaves signal ownership with the CLI.
 func Run(ctx context.Context, input io.Reader, output io.Writer, selected *config.Config) error {
 	model := New(selected)
 	model.browser.ctx = ctx
+	model.history.ctx = ctx
 	defer model.browser.close()
+	defer model.history.close()
 	_, err := tea.NewProgram(model, tea.WithContext(ctx),
 		tea.WithInput(input), tea.WithOutput(output), tea.WithoutSignalHandler()).Run()
 	return err
@@ -80,6 +86,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case scanUpdate:
 		return m.updateScan(msg)
+	case historyUpdate:
+		return m.updateHistory(msg)
 	case tea.PasteMsg:
 		if m.browser.editing {
 			return m.editSearch(tea.KeyPressMsg{Text: msg.Content})
@@ -101,10 +109,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case key.Matches(msg, m.keys.Interrupt):
 			m.browser.stop()
+			m.history.stop()
 			return m, tea.Interrupt
 		case key.Matches(msg, m.keys.Quit):
 			m.browser.stop()
+			m.history.stop()
 			return m, tea.Quit
+		case (m.page == historyPage || m.page == runPage) && key.Matches(msg, m.keys.Refresh):
+			return m.startHistory()
 		case key.Matches(msg, m.keys.Reload):
 			if m.reloading {
 				return m, nil
@@ -121,16 +133,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.changed()
 		case key.Matches(msg, m.keys.Next, m.keys.Previous):
 			m.browser.stop()
+			m.history.stop()
 			m.browser.rows = nil
 			m.browser.archive = archive.Archive{}
 			direction := 1
 			if key.Matches(msg, m.keys.Previous) {
 				direction = -1
 			}
-			m.page = (m.tab() + page(direction) + 5) % 5
+			m.page = (m.tab() + page(direction) + 6) % 6
+			if m.page == historyPage && !m.history.attempted {
+				m.body.GotoTop()
+				return m.startHistory()
+			}
 			return m.changed()
 		case key.Matches(msg, m.keys.Back):
 			switch m.page {
+			case historyPage:
+				m.history.stop()
+				m.page = homePage
+			case runPage:
+				m.page = historyPage
 			case archiveListPage:
 				m.browser.stop()
 				m.browser.rows = nil
@@ -155,6 +177,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.changed()
 		case key.Matches(msg, m.keys.Open):
 			switch {
+			case m.page == historyPage && len(m.history.runs) > 0:
+				m.page = runPage
 			case m.page == archivesPage && len(m.repositoryNames()) > 0:
 				m.browser.from = archivesPage
 				m.browser.name = m.repositoryNames()[m.browser.repository]
@@ -184,6 +208,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			default:
 				return m, nil
 			}
+			return m.changed()
+		case m.page == historyPage && key.Matches(msg, m.keys.Scroll):
+			direction := 1
+			if msg.Code == tea.KeyUp || msg.Code == 'k' {
+				direction = -1
+			}
+			m.history.cursor = max(0, min(m.history.cursor+direction, len(m.history.runs)-1))
 			return m.changed()
 		case m.page == fileListPage && msg.Code == '/':
 			m.browser.editing, m.browser.input = true, m.browser.query
@@ -266,7 +297,7 @@ func (m Model) changed() (tea.Model, tea.Cmd) {
 
 func (m Model) selectablePage() bool {
 	return m.page == workflowsPage || m.page == workflowPage ||
-		m.page == archivesPage || m.page == archiveListPage || m.page == fileListPage
+		m.page == archivesPage || m.page == archiveListPage || m.page == fileListPage || m.page == historyPage
 }
 
 func (m Model) View() tea.View {
@@ -275,7 +306,7 @@ func (m Model) View() tea.View {
 		if m.width < 24 || m.height < 6 {
 			content = "Resize terminal (24x6).\nq quit"
 		} else {
-			tabs := []string{"Home", "Workflows", "Configuration", "Archives", "Help"}
+			tabs := []string{"Home", "Workflows", "Configuration", "Archives", "History", "Help"}
 			tabs[m.tab()] = lipgloss.NewStyle().Bold(true).Underline(true).Render(tabs[m.tab()])
 			content = "Cairn  " + strings.Join(tabs, " | ") + "\n\n" +
 				m.body.View() + "\n\n" + m.help.ShortHelpView(m.keys.ShortHelp())

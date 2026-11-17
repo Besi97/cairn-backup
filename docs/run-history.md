@@ -72,6 +72,23 @@ arguments exit `3`. Diagnostics go to stderr, records to stdout. Missing executi
 evidence is unknown, not an inspection failure. Read-time observations are
 momentary, and age alone never establishes that a run stopped.
 
+## TUI history
+
+The **History** tab shows the same retained runs, newest last-event first.
+Enter opens a run summary; Escape returns. The first visit reads history.
+Press `g` to reopen and inspect it again; there is no automatic refresh or filter.
+`r` still reloads only the TUI configuration. Inspection time labels the displayed
+snapshot, not ongoing activity. A failed refresh reports unavailable history and
+keeps any previous snapshot with its original inspection time.
+
+Details show recorded timestamps, outcome, incomplete/partial flags, attribution,
+and aggregate terminal task counts, separately from momentary owner/lock evidence.
+Per-stage/task results and configuration contents are not retained. Configuration
+identity identifies a path, not its contents: differences from the TUI or agent's
+configuration snapshot cannot be determined. The tab reads local data only,
+without contacting Borg, resolving secrets, taking locks, or rewriting history.
+Leaving or closing the TUI cancels only its own read, not unrelated work.
+
 ## Concurrency, safety, and failures
 
 Cairn directories use `0700`; files use `0600`, owned by the invoking user.
