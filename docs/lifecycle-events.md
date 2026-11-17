@@ -44,6 +44,11 @@ Callback error text is never put in events or CLI output.
   `runlock.Identity.Digest()`, captured at configured execution entry points.
   Scheduled skips and preparation failures carry the same identity. Standalone
   operations omit it; configuration paths and contents are never event fields.
+- `Execution` optionally identifies the acquired workflow-lock file and Cairn
+  owner (boot ID, PID, process-start ticks). It contains no paths and is absent
+  when capture is unavailable or no workflow lock was acquired. It is inspection
+  evidence, not proof that Cairn or Borg is currently running; see
+  [crash observations](run-history.md#crash-and-restart-observations).
 - `Stage` and `Task` are one-based configuration indexes. Zero means not
   applicable. Standalone operations have task 1 and no stage.
 - `Kind` distinguishes run, stage, and task starts, finishes, and skips.

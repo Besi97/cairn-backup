@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
+	"github.com/Besi97/cairn-backup/cli/internal/runlock"
 )
 
 type Kind string
@@ -65,6 +66,7 @@ type Event struct {
 	Task        int
 	Outcome     Outcome
 	Reason      Reason
+	Execution   *runlock.Evidence
 }
 
 type Observer func(Event) error
@@ -152,6 +154,7 @@ func New(ctx context.Context, base Event) *Run {
 		RunID: rand.Text(), Source: source, ScheduledAt: due,
 		Workflow: base.Workflow, ConfigID: configID, Operation: base.Operation,
 		Repository: base.Repository, Preview: base.Preview,
+		Execution: base.Execution,
 	}}
 }
 
@@ -163,6 +166,12 @@ func (r *Run) Emit(event Event) {
 	event.Source, event.ScheduledAt = r.base.Source, r.base.ScheduledAt
 	event.Workflow, event.Preview = r.base.Workflow, r.base.Preview
 	event.ConfigID = r.base.ConfigID
+	if r.base.Execution != nil {
+		evidence := *r.base.Execution
+		event.Execution = &evidence
+	} else {
+		event.Execution = nil
+	}
 	if event.Operation == "" {
 		event.Operation = r.base.Operation
 	}

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Besi97/cairn-backup/cli/internal/config"
+	"github.com/Besi97/cairn-backup/cli/internal/history"
 	"github.com/Besi97/cairn-backup/cli/internal/runlock"
 	"github.com/Besi97/cairn-backup/cli/internal/workflow"
 )
@@ -243,12 +244,44 @@ workflows:
 				}
 			}
 			assertAgentHeld()
+			var recorded history.Summary
+			inspectOwner := func(want runlock.OwnerState) {
+				t.Helper()
+				if finish == "agent crash" {
+					return // This library-only fixture does not attach a history observer.
+				}
+				s, err := history.Open()
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer s.Close()
+				rows, err := s.Inspect()
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, row := range rows {
+					r := row.Summary
+					if r.Execution != nil && r.Execution.PID == cmd.Process.Pid {
+						if !r.Incomplete || r.Outcome != "" || r.FinishedAt != nil || row.Owner != want {
+							t.Fatalf("invented state: %+v", row)
+						}
+						if recorded.RunID != "" && (r.Sequence != recorded.Sequence || !r.LastObserved.Equal(recorded.LastObserved)) {
+							t.Fatal("inspection rewrote history")
+						}
+						recorded = r
+						return
+					}
+				}
+				t.Fatal("missing owner evidence")
+			}
+			inspectOwner(runlock.OwnerPresent)
 			switch finish {
 			case "crash", "fallback crash", "probe crash", "agent crash":
 				cmd.Process.Kill()
 				cmd.Wait()
 				assertWorkflowBusy(t, path)
 				assertAgentHeld()
+				inspectOwner(runlock.OwnerGone)
 				syscall.Kill(-pid, syscall.SIGKILL)
 			case "cancel":
 				cmd.Process.Signal(syscall.SIGTERM)
@@ -275,6 +308,17 @@ workflows:
 			}
 			awaitWorkflowUnlock(t, path)
 			active = false
+			if finish == "crash" {
+				inspectOwner(runlock.OwnerGone)
+				if err := os.WriteFile(base+".release", nil, 0600); err != nil {
+					t.Fatal(err)
+				}
+				restarted := startWorkflowProcess(t, path, "manual")
+				if err := restarted.Wait(); err != nil {
+					t.Fatal(err)
+				}
+				inspectOwner(runlock.OwnerGone)
+			}
 		})
 	}
 }
