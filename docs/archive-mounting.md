@@ -49,8 +49,7 @@ interface does not support special filesystem flags or ACLs.
 `--destination DIR`. It mounts exactly one archive, not a whole repository.
 There is no background mode, dry run, configuration loading, configured-name
 lookup, or `BORG_REPO` fallback. Borg expands archive placeholders normally.
-Positional mountpoints are not accepted by mount or unmount. Use
-`--destination=-view` for a directory name beginning with a hyphen.
+Use `--destination=-view` for a directory name beginning with a hyphen.
 
 Local repository and access-file paths resolve from the invocation directory.
 SSH locations use the existing noninteractive access policy with host-key

@@ -41,7 +41,7 @@ func TestMountCommandsValidateWithoutDependencies(t *testing.T) {
 	}
 	for _, operation := range []string{"mount", "unmount"} {
 		var stdout, stderr bytes.Buffer
-		if code := Run(t.Context(), []string{"archive", operation, "--help"}, &stdout, &stderr, "test"); code != 0 || !strings.Contains(stdout.String(), "--destination DIR") || strings.Contains(stdout.String(), "MOUNTPOINT") || stderr.Len() != 0 {
+		if code := Run(t.Context(), []string{"archive", operation, "--help"}, &stdout, &stderr, "test"); code != 0 || !strings.Contains(stdout.String(), "--destination DIR") || stderr.Len() != 0 {
 			t.Fatalf("help code=%d stdout=%q stderr=%q", code, &stdout, &stderr)
 		}
 	}
@@ -60,18 +60,41 @@ func TestUnmountRefusesUnrelatedPathsBeforeBorg(t *testing.T) {
 	}
 }
 
-func TestMountCommandsRejectPositionalDestinations(t *testing.T) {
+func TestMountCommandsRejectArguments(t *testing.T) {
 	t.Setenv("PATH", "")
 	for _, operation := range []string{"mount", "unmount"} {
 		for _, extra := range [][]string{
-			{"target"}, {"--", "-target"}, {"--destination=target", "other"},
+			{"unexpected"}, {"--", "-unexpected"}, {"one", "two"},
 		} {
 			var stdout, stderr bytes.Buffer
-			args := append([]string{"archive", operation}, extra...)
+			args := []string{"archive", operation, "--destination=target"}
+			if operation == "mount" {
+				args = append(args, "--repository=repo", "--archive-name=name")
+			}
+			args = append(args, extra...)
 			code := Run(t.Context(), args, &stdout, &stderr, "test")
-			want := "cairn archive " + operation + " --destination DIR"
+			want := `for "cairn archive ` + operation + `"`
 			if code != 3 || stdout.Len() != 0 || !strings.Contains(stderr.String(), want) ||
-				!strings.Contains(stderr.String(), "positional destinations are not supported") {
+				!strings.Contains(stderr.String(), "unknown command") {
+				t.Fatalf("args=%q code=%d stdout=%q stderr=%q", args, code, &stdout, &stderr)
+			}
+		}
+	}
+}
+
+func TestMountCommandsRequireDestination(t *testing.T) {
+	t.Setenv("PATH", "")
+	for _, operation := range []string{"mount", "unmount"} {
+		for _, extra := range [][]string{nil, {"--destination="}} {
+			var stdout, stderr bytes.Buffer
+			args := []string{"archive", operation}
+			if operation == "mount" {
+				args = append(args, "--repository=repo", "--archive-name=name")
+			}
+			args = append(args, extra...)
+			code := Run(t.Context(), args, &stdout, &stderr, "test")
+			if code != 3 || stdout.Len() != 0 ||
+				!strings.Contains(stderr.String(), "--destination is required and must not be empty") {
 				t.Fatalf("args=%q code=%d stdout=%q stderr=%q", args, code, &stdout, &stderr)
 			}
 		}

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -25,9 +26,12 @@ func newArchiveMountCommand() *cobra.Command {
 			"SIGTERM, crashes, and forced shutdown may leave a stale mount; no automatic\n" +
 			"cleanup is attempted. Archived symlinks may point outside the mount.\n" +
 			"No background mode, permission overrides, or arbitrary mount options.",
-		Args:              archiveDestinationArgs,
+		Args:              cobra.NoArgs,
 		ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if destination == "" {
+				return errors.New("--destination is required and must not be empty")
+			}
 			for _, name := range []string{"repository", "archive-name", "passphrase-file", "identity-file"} {
 				value, _ := cmd.Flags().GetString(name)
 				if cmd.Flags().Changed(name) && value == "" {
@@ -78,9 +82,12 @@ func newArchiveUnmountCommand() *cobra.Command {
 			"Missing, ambiguous, and unrelated mounts are refused. No force/lazy unmount,\n" +
 			"privilege escalation, repository access, or configuration loading.\n" +
 			"Close readers first. Concurrent same-user mount replacement is a trust boundary.",
-		Args:              archiveDestinationArgs,
+		Args:              cobra.NoArgs,
 		ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if destination == "" {
+				return errors.New("--destination is required and must not be empty")
+			}
 			dir, err := os.Getwd()
 			if err != nil {
 				return &exitError{code: exitFailure, err: err}
@@ -96,17 +103,6 @@ func newArchiveUnmountCommand() *cobra.Command {
 	cmd.Flags().StringVar(&destination, "destination", "", "Exact same-user Borg mount directory (required)")
 	registerDirectoryCompletion(cmd, "destination")
 	return cmd
-}
-
-func archiveDestinationArgs(cmd *cobra.Command, args []string) error {
-	if len(args) != 0 {
-		return fmt.Errorf("positional destinations are not supported; use '%s --destination DIR'", cmd.CommandPath())
-	}
-	destination, _ := cmd.Flags().GetString("destination")
-	if destination == "" {
-		return fmt.Errorf("--destination is required and must not be empty")
-	}
-	return nil
 }
 
 func runMountOperation(cmd *cobra.Command, request borg.Request, unmount bool) error {
