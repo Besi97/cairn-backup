@@ -98,6 +98,7 @@ func main() {
 	if dir := os.Getenv("FAKE_RESTORE_DATA"); dir != "" {
 		for _, operation := range []string{"list", "export-tar"} {
 			if slices.Contains(os.Args[1:], operation) {
+				fmt.Fprint(os.Stderr, os.Getenv("FAKE_RESTORE_PREFLIGHT_LOG_RECORDS"))
 				file, err := os.Open(filepath.Join(dir, operation))
 				if err != nil {
 					panic(err)

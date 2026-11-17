@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
+	"github.com/Besi97/cairn-backup/cli/internal/display"
 	"github.com/Besi97/cairn-backup/cli/internal/lifecycle"
 	"github.com/Besi97/cairn-backup/cli/internal/restore"
 	"github.com/spf13/cobra"
@@ -127,7 +128,16 @@ func confirmRestore(cmd *cobra.Command, destination string) error {
 }
 
 func runRestore(cmd *cobra.Command, plan restore.Plan, authorized, preview bool) error {
-	events := lifecycle.New(cmd.Context(), lifecycle.Event{Operation: "restore", Preview: preview})
+	output := display.NewOutput(cmd.OutOrStdout(), cmd.ErrOrStderr())
+	display.AttachDiagnostics(cmd.Context(), output)
+	var runID string
+	ctx := lifecycle.WithAdditionalObserver(cmd.Context(), func(event lifecycle.Event) error {
+		if event.Kind == lifecycle.RunStarted {
+			runID = event.RunID
+		}
+		return output.Observe(event)
+	})
+	events := lifecycle.New(ctx, lifecycle.Event{Operation: "restore", Preview: preview})
 	events.Emit(lifecycle.Event{Kind: lifecycle.RunStarted})
 	events.Emit(lifecycle.Event{Kind: lifecycle.TaskStarted, Task: 1})
 	outcome := lifecycle.Failure
@@ -139,13 +149,22 @@ func runRestore(cmd *cobra.Command, plan restore.Plan, authorized, preview bool)
 	if preview {
 		status = "Restore preview destination: %q; destination will not be created or changed.\n"
 	}
-	if _, err := fmt.Fprintf(cmd.ErrOrStderr(), status, plan.Destination()); err != nil {
+	if _, err := fmt.Fprintf(output.Writer(false, ""), status, plan.Destination()); err != nil {
 		return &exitError{code: exitFailure, err: err}
 	}
-	if _, err := fmt.Fprintln(cmd.ErrOrStderr(), "Repository and destination must be trusted and unchanged by other processes; not a sandbox. Preflight reads selected file data before native extraction."); err != nil {
+	if _, err := fmt.Fprintln(output.Writer(false, ""), "Repository and destination must be trusted and unchanged by other processes; not a sandbox. Preflight reads selected file data before native extraction."); err != nil {
 		return &exitError{code: exitFailure, err: err}
 	}
-	result, runErr := plan.Run(cmd.Context(), borg.Runner{}, authorized, cmd.ErrOrStderr())
+	id := display.TaskID{Run: runID, Task: 1}
+	plan = plan.WithProgress(func(progress borg.Progress) error {
+		return output.Progress(id, "restore", progress)
+	})
+	result, runErr := plan.Run(cmd.Context(), borg.Runner{}, authorized, output.Writer(false, display.Label("borg", "restore")))
+	output.FinishTask(id)
+	if err := output.Err(); err != nil {
+		result.Outcome = borg.Failure
+		runErr = errors.Join(runErr, err)
+	}
 	outcome = lifecycle.FromBorg(result.Outcome)
 	code, text := exitFailure, "failed"
 	switch result.Outcome {
@@ -162,7 +181,7 @@ func runRestore(cmd *cobra.Command, plan restore.Plan, authorized, preview bool)
 	} else if result.Outcome == borg.Success {
 		suffix = "."
 	}
-	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Restore %s%s\n", text, suffix); err != nil {
+	if _, err := fmt.Fprintf(output.Writer(true, ""), "Restore %s%s\n", text, suffix); err != nil {
 		outcome = lifecycle.Failure
 		return &exitError{code: exitFailure, err: err}
 	}

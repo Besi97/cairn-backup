@@ -105,6 +105,10 @@ closed after all children exit. It is not copied to disk, command arguments, or
 environment values. Explicit passphrase files retain precedence.
 
 Status and Borg diagnostics go to stderr; the final human outcome goes to stdout.
+Diagnostics and progress share the task-board renderer and terminal-control
+escaping used by other operations. The lazy local history observer records one
+restore summary, including preview status and normalized outcome, without paths,
+archive selectors, credentials, or diagnostic text.
 Exit codes are 0 success, 1 warnings, 2 execution/preflight/output failure,
 3 invalid input or missing confirmation, and 130/143 interruption.
 One manual `restore` run/task lifecycle spans preflight and extraction; events
@@ -123,5 +127,7 @@ The caller supplies a `borg.Runner`, retaining inherited advisory-lock descripto
 and the shared process/access contracts. Backend execution does not emit lifecycle
 events itself; CLI adapters own the single run/task envelope. Other interfaces
 must not convert `archive.DisplayText` into `Options.Paths`.
+`Plan.WithProgress` returns a copy with a structured Borg progress callback;
+preflight's binary stdout remains separate from diagnostics and progress.
 
 For recovery without Cairn, see [native Borg recovery](recovery.md).

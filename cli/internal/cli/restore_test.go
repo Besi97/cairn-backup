@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Besi97/cairn-backup/cli/internal/cancellation"
+	"github.com/Besi97/cairn-backup/cli/internal/history"
 	"github.com/Besi97/cairn-backup/cli/internal/lifecycle"
 	"github.com/creack/pty"
 )
@@ -122,10 +123,10 @@ func TestRestoreInvocation(t *testing.T) {
 			t.Fatalf("code=%d stderr=%s", code, &stderr)
 		}
 		got := readRecord(t, record)
-		want := []string{"extract", "--lock-wait", "8", "--list", "--", filepath.Join(cwd, "repo") + "::snapshot", "pp:-literal"}
+		want := []string{"extract", "--log-json", "--lock-wait", "8", "--list", "--progress", "--", filepath.Join(cwd, "repo") + "::snapshot", "pp:-literal"}
 		wantDir := filepath.Join(cwd, "new")
 		if preview {
-			want = append([]string{"extract", "--dry-run"}, want[1:]...)
+			want = append([]string{"extract", "--log-json", "--dry-run"}, want[2:]...)
 			wantDir = cwd
 			if _, err := os.Stat("new"); !errors.Is(err, os.ErrNotExist) {
 				t.Fatal("preview created destination")
@@ -141,6 +142,130 @@ func TestRestoreInvocation(t *testing.T) {
 	data, err := os.ReadFile(calls)
 	if err != nil || bytes.Count(data, []byte("\n")) != 6 {
 		t.Fatalf("expected three Borg commands per restore: %s %v", data, err)
+	}
+}
+
+func TestRestoreHistory(t *testing.T) {
+	for _, preview := range []bool{false, true} {
+		for _, code := range []int{0, 1, 2, 130, 143} {
+			t.Run(fmt.Sprintf("%t/%d", preview, code), func(t *testing.T) {
+				fakeRestoreData(t)
+				t.Setenv("FAKE_EXIT", strconv.Itoa(code))
+				destination := filepath.Join(t.TempDir(), "private-restore-destination")
+				args := restoreArgs(destination)
+				if preview {
+					args = append(args, "--dry-run")
+				}
+				var stdout, stderr bytes.Buffer
+				if got := Run(t.Context(), args, &stdout, &stderr, "test"); got != code {
+					t.Fatalf("code=%d stderr=%s", got, &stderr)
+				}
+				store, err := history.Open()
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer store.Close()
+				runs, err := store.List()
+				if err != nil || len(runs) != 1 {
+					t.Fatalf("runs=%+v error=%v", runs, err)
+				}
+				run := runs[0]
+				want := lifecycle.Success
+				counts := history.TaskCounts{Success: 1}
+				switch code {
+				case 1:
+					want, counts = lifecycle.Warning, history.TaskCounts{Warning: 1}
+				case 2:
+					want, counts = lifecycle.Failure, history.TaskCounts{Failure: 1}
+				case 130, 143:
+					want, counts = lifecycle.Interrupted, history.TaskCounts{Interrupted: 1}
+				}
+				if run.Operation != "restore" || run.Preview != preview || run.Outcome != want ||
+					run.Source != lifecycle.Manual || run.ConfigID != "" || run.Workflow != "" ||
+					run.Incomplete || run.Partial || run.Sequence != 4 || run.Tasks != counts {
+					t.Fatalf("summary=%+v", run)
+				}
+				data, err := os.ReadFile(filepath.Join(os.Getenv("XDG_STATE_HOME"), "cairn/history/runs.json"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, private := range []string{destination, "snapshot", "diagnostic", "pp:"} {
+					if bytes.Contains(data, []byte(private)) {
+						t.Fatalf("history contains %q", private)
+					}
+				}
+				if strings.Contains(stderr.String(), "history unavailable") {
+					t.Fatalf("restore was rejected by history: %s", &stderr)
+				}
+			})
+		}
+	}
+}
+
+func TestRestoreBoardAndStructuredPreflight(t *testing.T) {
+	fakeRestoreData(t)
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("FAKE_RESTORE_PREFLIGHT_LOG_RECORDS", "{\"type\":\"progress_percent\",\"message\":\"preflight\\u001b[2J\",\"finished\":false}\n"+
+		"{\"type\":\"log_message\",\"message\":\"preflight diagnostic\\u0007\"}\n")
+	t.Setenv("FAKE_LOG_RECORDS", "{\"type\":\"progress_percent\",\"message\":\"extract progress\\u001b[2J\",\"finished\":false}\n"+
+		"{\"type\":\"file_status\",\"status\":\"x\",\"path\":\"control\\u001b[2Jname\"}\n"+
+		"{\"type\":\"log_message\",\"message\":\"extract diagnostic\\u0007\"}\n")
+	t.Setenv("FAKE_STDOUT", "stdout control\x1b[2J\a\n")
+	master, slave, err := pty.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer master.Close()
+	defer slave.Close()
+	if err := pty.Setsize(slave, &pty.Winsize{Rows: 24, Cols: 100}); err != nil {
+		t.Fatal(err)
+	}
+	stderr := &historyTerminal{file: slave}
+	var stdout bytes.Buffer
+	if code := Run(t.Context(), append(restoreArgs(t.TempDir()), "--allow-existing"), &stdout, stderr, "test"); code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.text())
+	}
+	text := stderr.text()
+	for _, want := range []string{"cairn [restore] running", "borg [restore]", "preflight diagnostic", "extract diagnostic", "extract progress", `\x1b[2J`, `\a`} {
+		if !strings.Contains(text, want) {
+			t.Errorf("missing %q in %q", want, text)
+		}
+	}
+	if strings.Contains(text, "\x1b[2J") || strings.ContainsRune(text, '\a') ||
+		strings.Contains(text, `"type":`) || strings.Contains(stdout.String(), "\x1b") ||
+		!strings.HasSuffix(text, "\r\x1b[J") || stdout.String() != "Restore completed.\n" {
+		t.Fatalf("unsafe board output: stdout=%q stderr=%q", &stdout, text)
+	}
+}
+
+type restoreProgressFailure struct{}
+
+func (restoreProgressFailure) Write(p []byte) (int, error) {
+	if bytes.Contains(p, []byte("preflight-progress")) {
+		return 0, errors.New("progress destination failed")
+	}
+	return len(p), nil
+}
+
+func TestRestoreProgressFailureBeforeWrites(t *testing.T) {
+	fakeRestoreData(t)
+	t.Setenv("FAKE_RESTORE_PREFLIGHT_LOG_RECORDS", "{\"type\":\"progress_percent\",\"message\":\"preflight-progress\",\"finished\":false}\n")
+	destination := filepath.Join(t.TempDir(), "new")
+	var stdout bytes.Buffer
+	if code := Run(t.Context(), restoreArgs(destination), &stdout, restoreProgressFailure{}, "test"); code != 2 {
+		t.Fatalf("progress failure code=%d", code)
+	}
+	if _, err := os.Stat(destination); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("progress failure created destination")
+	}
+	store, err := history.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	runs, err := store.List()
+	if err != nil || len(runs) != 1 || runs[0].Outcome != lifecycle.Failure || runs[0].Incomplete {
+		t.Fatalf("progress failure history=%+v error=%v", runs, err)
 	}
 }
 

@@ -105,6 +105,13 @@ func Prepare(options Options, invocationDir string) (Plan, error) {
 
 func (p Plan) Destination() string { return p.destination }
 
+// WithProgress opts diagnostics into Borg's structured log channel without
+// changing the byte-preserving stdout used by preflight.
+func (p Plan) WithProgress(progress func(borg.Progress) error) Plan {
+	p.request.Progress = progress
+	return p
+}
+
 func (p Plan) Existing() (bool, error) {
 	if p.destination == "" {
 		return false, errors.New("restore plan must be prepared before use")
@@ -116,6 +123,9 @@ func (p Plan) command(operation string, flags ...string) borg.Request {
 	request := p.request
 	request.Args = append([]string{operation}, request.Args...)
 	request.Args = append(request.Args, flags...)
+	if request.Progress != nil && operation != "list" {
+		request.Args = append(request.Args, "--progress")
+	}
 	request.Args = append(request.Args, "--", p.location)
 	if operation == "export-tar" {
 		request.Args = append(request.Args, "-")
