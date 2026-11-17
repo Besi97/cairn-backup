@@ -300,7 +300,7 @@ func TestTUIBrowsingDoesNotEmitLifecycle(t *testing.T) {
 	send("\r")
 	waitFor("Task 1:")
 	send("\r")
-	waitFor("Enter opens the repository view")
+	waitFor("enter repository")
 	send("\r")
 	waitFor("Referenced by manual")
 	send("y")
@@ -312,7 +312,7 @@ func TestTUIBrowsingDoesNotEmitLifecycle(t *testing.T) {
 	}
 	send("r")
 	waitFor("cannot read or validate")
-	send("\t\t\t")
+	send("\t")
 	waitFor("unknown · incomplete")
 	send("\r")
 	waitFor("Recorded outcome: unknown")

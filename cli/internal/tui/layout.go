@@ -106,7 +106,7 @@ func (m Model) footer() string {
 	case repositoryPage:
 		keys = "enter list archives  y YAML  ↑↓ scroll"
 	case taskPage:
-		keys = "enter repository  y workflow YAML  ↑↓ scroll"
+		keys = "enter repository (Archives)  y workflow YAML  ↑↓ scroll"
 	default:
 		keys = "↑↓ scroll  esc back"
 	}

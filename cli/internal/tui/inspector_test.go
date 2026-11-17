@@ -40,12 +40,14 @@ func TestInspectorPreviewAndDetailScrolling(t *testing.T) {
 	}
 	contains(t, m, "Operation: compact", "Repository: remote",
 		"Location: ssh://backup@example.invalid/./repo", "Passphrase file: ./not-accessed",
-		"Identity file: ./also-not-accessed", "Enter opens task details.")
+		"Identity file: ./also-not-accessed")
 	m, _ = press(m, tea.KeyEnter, 0)
 	if m.page != taskPage {
 		t.Fatal("opening a task skipped task details")
 	}
-	contains(t, m, "Enter opens the repository view")
+	if strings.Contains(modelText(m), "Enter opens") || !strings.Contains(m.footer(), "enter repository") {
+		t.Fatal("task navigation hint belongs in the footer, not the content")
+	}
 	m, _ = press(m, tea.KeyEscape, 0)
 	if m.page != workflowPage || m.task != 1 {
 		t.Fatal("task details back lost the selected task")
@@ -64,11 +66,16 @@ func TestNarrowInspectorDrilldown(t *testing.T) {
 	}
 	contains(t, m, "Sources:", "• .", "Operation: backup")
 	m, _ = press(m, tea.KeyEnter, 0)
-	if m.page != repositoryPage {
-		t.Fatal("task did not open repository")
+	if m.page != repositoryPage || m.tab() != archivesPage {
+		t.Fatal("task did not open the repository under Archives")
+	}
+	m, _ = press(m, 'y', 0)
+	if m.tab() != archivesPage {
+		t.Fatal("repository YAML left Archives")
 	}
 	m, _ = press(m, tea.KeyEscape, 0)
-	if m.page != taskPage {
+	m, _ = press(m, tea.KeyEscape, 0)
+	if m.page != taskPage || m.tab() != workflowsPage {
 		t.Fatal("repository did not return to task details")
 	}
 	m, _ = press(m, tea.KeyEscape, 0)
@@ -86,11 +93,11 @@ func TestNarrowInspectorDrilldown(t *testing.T) {
 	}
 	contains(t, m, "Repository: local", "Location: ./repo", "Passphrase: [redacted]")
 	m, _ = press(m, tea.KeyEnter, 0)
-	if m.page != repositoryPage {
-		t.Fatal("task details did not open the repository view")
+	if m.page != repositoryPage || m.tab() != archivesPage {
+		t.Fatal("task details did not open the repository under Archives")
 	}
 	m, _ = press(m, tea.KeyEscape, 0)
-	if m.page != taskPage {
+	if m.page != taskPage || m.tab() != workflowsPage {
 		t.Fatal("wide repository view did not return to task details")
 	}
 }

@@ -62,7 +62,7 @@ grouped inspector. Up/down changes the selection; Page Up/Page Down scrolls its
 details independently. Narrower terminals use full-width lists and Enter/Escape
 detail navigation. Enter on a task always opens task details, including a section
 with its repository's configured information. Enter from task details opens the
-repository view to browse archives.
+repository view under Archives to browse archives; Escape returns to the task.
 Likewise, narrow archive views open repository or archive metadata before Enter
 continues to the next listing.
 

@@ -241,11 +241,11 @@ func TestTUITerminal(t *testing.T) {
 		}
 		send("\t", "Enter inspects tasks")
 		send("\r", "Stage 1 / Task 1")
-		send("\r", "Enter opens the repository view")
+		send("\r", "Task 1: backup")
 		send("\r", "Referenced by nightly")
 		send("y", "Section: repositories / local")
 		send("\x1b", "enter list archives")
-		send("\x1b", "Enter opens the repository view")
+		send("\x1b", "Task 1: backup")
 		send("\x1b", "Task 1: backup")
 		send("\x1b", "Enter inspects tasks")
 		send("\t", "Configuration source:")

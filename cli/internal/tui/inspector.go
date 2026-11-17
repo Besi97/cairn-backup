@@ -95,13 +95,8 @@ func (m Model) taskDetail() string {
 	if t.stage == 0 {
 		return "No tasks configured."
 	}
-	action := "Enter opens task details."
-	if m.page == taskPage {
-		action = "Enter opens the repository view to browse its archives."
-	}
 	return section(fmt.Sprintf("Stage %d / Task %d", t.stage, t.task),
 		field("Operation", config.DisplayText(t.Type))) +
-		"\n\n" + mutedStyle.Render(action) +
 		"\n\n" + section("Task settings", m.configuredFields("workflows", m.workflowName(), "stages",
 		strconv.Itoa(t.stage-1), "tasks", strconv.Itoa(t.task-1))) +
 		"\n\n" + m.repositoryInfo(t.Repository)

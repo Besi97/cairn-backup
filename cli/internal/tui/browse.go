@@ -26,8 +26,7 @@ func reload(path string) tea.Cmd {
 }
 
 func (m Model) tab() page {
-	if (m.page == repositoryPage || (m.page == yamlPage && m.yamlFrom == repositoryPage)) &&
-		m.repositoryFrom == archivesPage {
+	if m.page == repositoryPage || (m.page == yamlPage && m.yamlFrom == repositoryPage) {
 		return archivesPage
 	}
 	if m.page == yamlPage {
