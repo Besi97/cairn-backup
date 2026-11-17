@@ -101,7 +101,8 @@ The repository and destination must be trusted and unchanged by other processes;
 this is not a sandbox or transaction. Preflight rejects unsafe paths and symlink
 traversal, but failures can leave partial replacements. Inspection's potentially
 lossy display names are not byte-exact restore selectors.
-See [manual restore](../docs/restore.md) for selection, safety, and preview details.
+Follow the [restore walkthrough](../docs/restore.md) to find an archive, preview,
+recover selected files or a whole archive, and verify the recovered contents.
 
 ## Backup
 

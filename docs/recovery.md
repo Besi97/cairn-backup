@@ -1,5 +1,8 @@
 # Recovery without Cairn
 
+For the Cairn CLI walkthrough, see [manual restore](restore.md).
+The native Borg steps below work independently of Cairn.
+
 Cairn stores ordinary Borg 1.x archives, not a Cairn-specific backup format.
 Recovery needs Borg and access to the repository, encryption key/passphrase,
 and SSH credentials where applicable. It does not need Cairn, its configuration,
