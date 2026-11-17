@@ -397,7 +397,7 @@ func TestTUIArchiveTerminal(t *testing.T) {
 				s.waitForAfter(t, want, offset)
 			}
 			send("\t\t\t", "Repository: local")
-			send("\r", "> files")
+			send("\r", "browses files")
 			send("\r", "TRUNCATED")
 			send("/needle\r", "last/needle")
 			send("\r", "Size: 4999 bytes")
