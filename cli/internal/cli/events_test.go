@@ -277,7 +277,7 @@ func TestTUIBrowsingDoesNotEmitLifecycle(t *testing.T) {
 	waitFor := func(text string) {
 		t.Helper()
 		output := ""
-		for !strings.Contains(escapes.ReplaceAllString(output, ""), text) {
+		for !strings.Contains(strings.Join(strings.Fields(escapes.ReplaceAllString(output, "")), " "), text) {
 			select {
 			case chunk := <-chunks:
 				output += chunk
@@ -296,9 +296,11 @@ func TestTUIBrowsingDoesNotEmitLifecycle(t *testing.T) {
 	}
 	waitFor("Configuration:")
 	send("\t")
-	waitFor("manual (manual only)")
+	waitFor("> manual")
 	send("\r")
-	waitFor("Manual only")
+	waitFor("Task 1:")
+	send("\r")
+	waitFor("enter repository")
 	send("\r")
 	waitFor("Referenced by manual")
 	send("y")
@@ -310,13 +312,13 @@ func TestTUIBrowsingDoesNotEmitLifecycle(t *testing.T) {
 	}
 	send("r")
 	waitFor("cannot read or validate")
-	send("\t\t\t")
-	waitFor("history-pty-run")
+	send("\t")
+	waitFor("unknown · incomplete")
 	send("\r")
 	waitFor("Recorded outcome: unknown")
 	send("g")
 	send("\x1b")
-	waitFor("newest last event first")
+	waitFor("> check")
 	send("q")
 	// Drain terminal output while Bubble Tea restores the screen.
 	for {

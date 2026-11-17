@@ -2,8 +2,6 @@ package tui
 
 import (
 	"context"
-	"fmt"
-	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -149,9 +147,6 @@ func (m Model) updateHistory(update historyUpdate) (tea.Model, tea.Cmd) {
 		}
 	}
 	m.refresh()
-	if m.page == historyPage {
-		m.revealSelection()
-	}
 	return m, nil
 }
 
@@ -167,87 +162,4 @@ func recordedTime(at *time.Time) string {
 		return "unknown"
 	}
 	return at.UTC().Format(time.RFC3339Nano)
-}
-
-func (m Model) historyText() string {
-	b := m.history
-	var text strings.Builder
-	text.WriteString("History · local recorded runs\n")
-	if b.loading {
-		text.WriteString("Reading history…\n")
-	}
-	if b.status != "" {
-		text.WriteString(b.status + "\n")
-	}
-	if !b.at.IsZero() {
-		fmt.Fprintf(&text, "Snapshot inspected: %s · g refresh\n", recordedTime(&b.at))
-	}
-	if m.page == historyPage {
-		fmt.Fprintf(&text, "%d retained (limit %d) · newest last event first\n"+
-			"↑/↓ select · enter summary · g refresh · esc home\n"+
-			"Incomplete ≠ active; partial counts may be incomplete.\n\n", len(b.runs), history.MaxRuns)
-		if len(b.runs) == 0 && !b.loading && b.status == "" {
-			text.WriteString("No recorded runs.")
-		}
-		for i, run := range b.runs {
-			s, marker := run.Summary, "  "
-			if i == b.cursor {
-				marker = "> "
-			}
-			name := s.Workflow
-			if name == "" {
-				name = s.Operation
-			}
-			flags := ""
-			if s.Incomplete {
-				flags += " · incomplete"
-			}
-			if s.Partial {
-				flags += " · partial"
-			}
-			if s.Preview {
-				flags += " · preview"
-			}
-			fmt.Fprintf(&text, "%s%s  %s  %s%s\n    %s\n", marker,
-				recordedTime(&s.LastObserved), config.DisplayText(name), recordedOutcome(s), flags,
-				config.DisplayText(s.RunID))
-		}
-		return text.String()
-	}
-	if b.cursor >= len(b.runs) {
-		return text.String()
-	}
-	run := b.runs[b.cursor]
-	s := run.Summary
-	configID := s.ConfigID
-	if configID == "" {
-		configID = "unknown"
-	}
-	owner, lock := string(run.Owner), string(run.Lock)
-	if owner == "" {
-		owner = "unknown"
-	}
-	if lock == "" {
-		lock = "unknown"
-	}
-	fmt.Fprintf(&text, "Run: %s · esc history\n\n"+
-		"Workflow: %s\nOperation: %s\nSource: %s · preview: %t\n"+
-		"Recorded outcome: %s · reason: %s\nIncomplete: %t · partial: %t\n"+
-		"First event: %s\nLast event: %s\nStarted: %s\nFinished: %s\nDue: %s\nLast sequence: %d\n\n"+
-		"Recorded terminal task counts\nSuccess: %d · warning: %d · failure: %d\nInterrupted: %d · skipped: %d\n"+
-		"Per-stage/task details are not retained; partial counts may be incomplete.\n\n"+
-		"Momentary evidence · owner: %s · lock: %s\n"+
-		"Owner present is not Borg liveness; gone does not mean Borg exited.\n"+
-		"Lock held may belong to another run; unknown does not mean free.\n"+
-		"Incomplete means no terminal event, not active. Age is not liveness.\n\n"+
-		"Configuration identity: %s\n"+
-		"Path identity only, not a content hash. Configuration contents are not retained;\n"+
-		"differences from TUI/agent snapshots are unknown.",
-		config.DisplayText(s.RunID), config.DisplayText(s.Workflow), config.DisplayText(s.Operation),
-		config.DisplayText(string(s.Source)), s.Preview, recordedOutcome(s), config.DisplayText(string(s.Reason)),
-		s.Incomplete, s.Partial, recordedTime(&s.FirstObserved), recordedTime(&s.LastObserved),
-		recordedTime(s.StartedAt), recordedTime(s.FinishedAt), recordedTime(&s.ScheduledAt), s.Sequence,
-		s.Tasks.Success, s.Tasks.Warning, s.Tasks.Failure, s.Tasks.Interrupted, s.Tasks.Skipped,
-		config.DisplayText(owner), config.DisplayText(lock), config.DisplayText(configID))
-	return text.String()
 }

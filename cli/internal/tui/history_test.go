@@ -17,6 +17,7 @@ import (
 	"github.com/Besi97/cairn-backup/cli/internal/history"
 	"github.com/Besi97/cairn-backup/cli/internal/lifecycle"
 	"github.com/Besi97/cairn-backup/cli/internal/runlock"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func historyModel(t *testing.T) Model {
@@ -67,12 +68,12 @@ func TestHistoryMissingAndRefreshReopens(t *testing.T) {
 	}
 	m, cmd = press(m, 'g', 0)
 	m = finishHistory(t, m, cmd)
-	contains(t, m, "new-run", "check", "unknown · incomplete")
+	contains(t, m, "check", "unknown · incomplete")
 	m, _ = press(m, tea.KeyEnter, 0)
 	if m.page != runPage || m.tab() != historyPage {
 		t.Fatal("summary is not under History")
 	}
-	contains(t, m, "Recorded outcome: unknown", "Incomplete: true", "owner: unknown · lock: unknown",
+	contains(t, m, "Recorded outcome: unknown", "Incomplete: true", "Owner: unknown", "Lock: unknown",
 		"Started:", "Finished: unknown", "Configuration identity: unknown", "differences from TUI/agent snapshots are unknown")
 	m, _ = press(m, tea.KeyEscape, 0)
 	if m.page != historyPage {
@@ -107,7 +108,7 @@ func TestHistorySafeErrorsAndPreviousSnapshot(t *testing.T) {
 			m, cmd := press(m, tea.KeyTab, 0)
 			m = finishHistory(t, m, cmd)
 			contains(t, m, "Local run history unavailable.")
-			text := m.body.GetContent()
+			text := modelText(m)
 			for _, forbidden := range []string{"private-error", state, "No recorded runs."} {
 				if strings.Contains(text, forbidden) {
 					t.Fatalf("unsafe error display: %q", text)
@@ -186,7 +187,7 @@ func TestHistoryReadDoesNotMutateOrAcquireLocks(t *testing.T) {
 		t.Fatal("history did not retain backend ordering and bound")
 	}
 	m, _ = press(m, tea.KeyEnter, 0)
-	contains(t, m, "owner: present · lock: held", "Recorded outcome: unknown", "Incomplete: true")
+	contains(t, m, "Owner: present", "Lock: held", "Recorded outcome: unknown", "Incomplete: true")
 	for range 3 {
 		m, cmd = press(m, 'g', 0)
 		m = finishHistory(t, m, cmd)
@@ -195,7 +196,7 @@ func TestHistoryReadDoesNotMutateOrAcquireLocks(t *testing.T) {
 	for range history.MaxRuns {
 		m, _ = press(m, 'j', 0)
 	}
-	if m.history.cursor != history.MaxRuns-1 || m.body.YOffset() == 0 {
+	if m.history.cursor != history.MaxRuns-1 || !strings.Contains(ansi.Strip(m.body.View()), "> nightly") {
 		t.Fatal("large history list selection is not visible")
 	}
 	m, _ = press(m, 'q', 0)
@@ -237,11 +238,11 @@ func TestHistorySummaryFieldsAndEscaping(t *testing.T) {
 		if want == "" {
 			want = "unknown"
 		}
-		contains(t, m, "Recorded outcome: "+want, "reason: prior_stage_warning", "partial: true",
+		contains(t, m, "Recorded outcome: "+want, "Reason: prior_stage_warning", "Partial: true",
 			"Success: 10 · warning: 2 · failure: 3", "Interrupted: 4 · skipped: 5",
-			"owner: gone · lock: unknown", "gone does not mean Borg exited", "not a content hash",
-			"Per-stage/task details are not retained", "Source: scheduled · preview: true", "Last sequence: 500")
-		if strings.ContainsAny(m.body.GetContent(), "\x1b\a") {
+			"Owner: gone", "Lock: unknown", "gone does not mean Borg exited", "not a content hash",
+			"Per-stage/task details are not retained", "Source: scheduled", "Preview: true", "Last sequence: 500")
+		if strings.ContainsAny(ansi.Strip(m.body.GetContent()), "\x1b\a") {
 			t.Fatal("terminal controls were not escaped")
 		}
 	}

@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/Besi97/cairn-backup/cli/internal/config"
+	"github.com/charmbracelet/x/ansi"
 )
 
 const browseConfig = `version: 1
@@ -70,15 +71,19 @@ func browsingModel(t *testing.T) (Model, string) {
 
 func contains(t *testing.T, m Model, values ...string) {
 	t.Helper()
-	view := m.body.GetContent()
+	view := modelText(m)
 	for _, value := range values {
-		if !strings.Contains(view, value) {
+		if !strings.Contains(strings.Join(strings.Fields(view), " "), strings.Join(strings.Fields(value), " ")) {
 			t.Fatalf("missing %q: %s", value, view)
 		}
 	}
 	if strings.Contains(view, "never-display-this") {
 		t.Fatal("secret rendered")
 	}
+}
+
+func modelText(m Model) string {
+	return ansi.Strip(strings.Join([]string{m.title, m.subtitle, m.notice, m.status, m.body.GetContent(), m.details.GetContent()}, "\n"))
 }
 
 func TestBrowseWorkflowsAndYAML(t *testing.T) {
@@ -88,11 +93,15 @@ func TestBrowseWorkflowsAndYAML(t *testing.T) {
 		t.Fatal(err)
 	}
 	m, _ = press(m, tea.KeyTab, 0)
-	contains(t, m, "> a-nightly (scheduled)", "z-manual (manual only)")
+	contains(t, m, "> a-nightly", "scheduled", "z-manual", "manual only")
 	m, _ = press(m, tea.KeyEnter, 0)
 	contains(t, m, "Workflow: a-nightly", "Cron: @daily", "Timezone: UTC",
-		"Stage 1", "> Task 1: backup → local", "Task 2: compact → remote", "Stage 2", "sources:")
+		"Stage 1", "> Task 1: backup → local", "Task 2: compact → remote", "Stage 2", "Sources:", "• .")
 	m, _ = press(m, 'j', 0)
+	m, _ = press(m, tea.KeyEnter, 0)
+	if m.page != taskPage {
+		t.Fatal("opening a task skipped task details")
+	}
 	m, _ = press(m, tea.KeyEnter, 0)
 	contains(t, m, "Repository: remote", "stage 1 / task 2", "ssh://backup@example.invalid/./repo",
 		"./not-accessed", "./also-not-accessed")
@@ -108,8 +117,12 @@ func TestBrowseWorkflowsAndYAML(t *testing.T) {
 		t.Fatal("YAML back did not return to repository")
 	}
 	m, _ = press(m, tea.KeyEscape, 0)
+	if m.page != taskPage {
+		t.Fatal("repository back did not return to task details")
+	}
+	m, _ = press(m, tea.KeyEscape, 0)
 	m, _ = press(m, 'j', 0)
-	contains(t, m, "> Task 1: prune → local", "keep_daily: 7")
+	contains(t, m, "> Task 1: prune → local", "Keep daily: 7")
 	m, _ = press(m, 'y', 0)
 	contains(t, m, "Section: workflows / a-nightly", "cron:", "stages:")
 	m, _ = press(m, tea.KeyEscape, 0)
@@ -118,7 +131,19 @@ func TestBrowseWorkflowsAndYAML(t *testing.T) {
 	m, _ = press(m, tea.KeyEnter, 0)
 	contains(t, m, "Workflow: z-manual", "Manual only")
 	m, _ = press(m, tea.KeyTab, 0)
-	contains(t, m, "Configuration source: "+path, "[redacted]", "./repo", "agent's startup snapshot")
+	contains(t, m, "Configuration source:", path, "agent's startup snapshot", "Press y")
+	if strings.Contains(modelText(m), "location:") {
+		t.Fatal("configuration overview embeds YAML")
+	}
+	m, _ = press(m, 'y', 0)
+	if m.tab() != configurationPage {
+		t.Fatal("full YAML lost the Configuration tab")
+	}
+	contains(t, m, "[redacted]", "./repo", "repositories:")
+	m, _ = press(m, tea.KeyEscape, 0)
+	if m.page != configurationPage {
+		t.Fatal("YAML back did not return to configuration")
+	}
 }
 
 func TestReload(t *testing.T) {
@@ -187,9 +212,9 @@ func TestBrowseCheckTasks(t *testing.T) {
 	for range 3 {
 		m, _ = press(m, 'j', 0)
 	}
-	contains(t, m, "> Task 2: check → local", "type: check", "verify_data: true")
+	contains(t, m, "> Task 2: check → local", "Operation: check", "Verify data: true")
 	m, _ = press(m, 'j', 0)
-	contains(t, m, "> Task 3: check → remote", "verify_data: false")
+	contains(t, m, "> Task 3: check → remote", "Verify data: false")
 	m, _ = press(m, 'j', 0)
 	contains(t, m, "> Task 4: check → remote")
 	taskYAML := m.selected.SanitizedYAML("workflows", "a-nightly", "stages", "1", "tasks", "3")
@@ -197,7 +222,7 @@ func TestBrowseCheckTasks(t *testing.T) {
 		t.Fatal("browsing invented an omitted verify_data setting")
 	}
 	m, _ = press(m, tea.KeyEnter, 0)
-	contains(t, m, "Repository: remote", "passphrase_file: ./not-accessed")
+	contains(t, m, "Repository: remote", "Passphrase file: ./not-accessed")
 }
 
 func TestSelectionRemainsVisible(t *testing.T) {
@@ -213,13 +238,13 @@ func TestSelectionRemainsVisible(t *testing.T) {
 	m, _ = press(m, tea.KeyTab, 0)
 	for range 39 {
 		m, _ = press(m, 'j', 0)
-		if !strings.Contains(m.body.View(), "> workflow-") {
+		if !strings.Contains(ansi.Strip(m.body.View()), "> workflow-") {
 			t.Fatalf("selection scrolled out of view: %s", m.body.View())
 		}
 	}
 	for range 39 {
 		m, _ = press(m, 'k', 0)
-		if !strings.Contains(m.body.View(), "> workflow-") {
+		if !strings.Contains(ansi.Strip(m.body.View()), "> workflow-") {
 			t.Fatalf("selection scrolled out of view: %s", m.body.View())
 		}
 	}
