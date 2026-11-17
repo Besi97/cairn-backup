@@ -3,7 +3,7 @@ package tui
 import "charm.land/bubbles/v2/key"
 
 type keyMap struct {
-	Next, Previous, Help, Back, Scroll, Page, Quit, Interrupt, Open, YAML, Reload key.Binding
+	Next, Previous, Help, Back, Scroll, Page, Quit, Interrupt, Open, YAML, Reload, Refresh key.Binding
 }
 
 func newKeyMap() keyMap {
@@ -19,6 +19,7 @@ func newKeyMap() keyMap {
 		Open:      key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open selection")),
 		YAML:      key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "related YAML")),
 		Reload:    key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reload TUI config")),
+		Refresh:   key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "refresh history")),
 	}
 }
 
@@ -27,5 +28,5 @@ func (k keyMap) ShortHelp() []key.Binding {
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{{k.Next, k.Previous, k.Help, k.Back}, {k.Open, k.YAML, k.Reload}, {k.Scroll, k.Page, k.Quit, k.Interrupt}}
+	return [][]key.Binding{{k.Next, k.Previous, k.Help, k.Back}, {k.Open, k.YAML, k.Reload, k.Refresh}, {k.Scroll, k.Page, k.Quit, k.Interrupt}}
 }

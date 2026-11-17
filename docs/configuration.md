@@ -26,7 +26,7 @@ operations do not discover configuration.
 ### Browse configuration in the terminal
 
 Run `cairn` or `cairn tui` in a terminal, optionally with `--config PATH`.
-Tab switches between Home, Workflows, Configuration, and Help. In Workflows,
+Tab switches between Home, Workflows, Configuration, Archives, History, and Help. In Workflows,
 use the arrows or `j`/`k` to select a workflow, then Enter to browse its ordered
 stages and tasks. Select a task and press Enter to follow its repository reference.
 `y` opens the workflow or repository YAML; Esc returns. Page Up/Down or `b`/`f`
