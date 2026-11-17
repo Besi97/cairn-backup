@@ -70,7 +70,7 @@ func TestRealBorgRestore(t *testing.T) {
 			}
 			t.Setenv("BORG_PASSPHRASE", "wrong inherited secret")
 			t.Setenv("BORG_REPO", "/must-not-be-used")
-			args := []string{"restore", "--repository=repo", "--archive-name=snapshot", "--destination=new", "--passphrase-file=passphrase"}
+			args := []string{"archive", "restore", "--repository=repo", "--archive-name=snapshot", "--destination=new", "--passphrase-file=passphrase"}
 			run := func(args []string, want int) {
 				t.Helper()
 				var stdout, stderr bytes.Buffer
@@ -119,7 +119,7 @@ func TestRealBorgRestore(t *testing.T) {
 				}
 			}
 			// A single hardlink slave must restore its contents even without its master.
-			selected := []string{"restore", "--repository=repo", "--archive-name=snapshot", "--destination=selected", "--passphrase-file=passphrase", "tree/hardlink"}
+			selected := []string{"archive", "restore", "--repository=repo", "--archive-name=snapshot", "--destination=selected", "--passphrase-file=passphrase", "tree/hardlink"}
 			run(selected, 0)
 			if got, err := os.ReadFile("selected/tree/hardlink"); err != nil || string(got) != "contents: file" {
 				t.Fatalf("selected hardlink=%q error=%v", got, err)
@@ -128,7 +128,7 @@ func TestRealBorgRestore(t *testing.T) {
 				t.Fatal("unselected file restored")
 			}
 			// Display-colliding names remain distinct literal selectors.
-			selected[3] = "--destination=nontext"
+			selected[4] = "--destination=nontext"
 			selected[len(selected)-1] = "tree/nontext\xff"
 			run(selected, 0)
 			if _, err := os.Stat("nontext/tree/nontext?"); !errors.Is(err, os.ErrNotExist) {
@@ -146,7 +146,7 @@ func TestRealBorgRestore(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			existing := []string{"restore", "--repository=repo", "--archive-name=snapshot", "--destination=existing", "--passphrase-file=passphrase", "tree/file"}
+			existing := []string{"archive", "restore", "--repository=repo", "--archive-name=snapshot", "--destination=existing", "--passphrase-file=passphrase", "tree/file"}
 			run(existing, 3)
 			run(append(append([]string(nil), existing...), "--dry-run"), 0)
 			if got, _ := os.ReadFile("existing/tree/file"); string(got) != "original contents" {
@@ -172,7 +172,7 @@ func TestRealBorgRestore(t *testing.T) {
 					t.Fatal(err)
 				}
 				writer.Close()
-				command := exec.CommandContext(ctx, cairnBinary, "restore", "--repository=repo", "--archive-name=snapshot", "--destination=descriptor", "tree/file")
+				command := exec.CommandContext(ctx, cairnBinary, "archive", "restore", "--repository=repo", "--archive-name=snapshot", "--destination=descriptor", "tree/file")
 				for _, value := range os.Environ() {
 					if !strings.HasPrefix(value, "BORG_PASSPHRASE=") {
 						command.Env = append(command.Env, value)
@@ -217,7 +217,7 @@ func TestRealBorgRestoreRejectsSymlinkTraversal(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, preview := range []bool{false, true} {
-		args := []string{"restore", "--repository=repo", "--archive-name=snapshot", "--destination=destination", "--allow-existing", "tree/file"}
+		args := []string{"archive", "restore", "--repository=repo", "--archive-name=snapshot", "--destination=destination", "--allow-existing", "tree/file"}
 		if preview {
 			args = append(args, "--dry-run")
 		}
@@ -249,7 +249,7 @@ func TestRealBorgRestoreRejectsSymlinkTraversal(t *testing.T) {
 	}
 	borgOutput(t, ctx, binary, "", "import-tar", repository+"::unsafe", "unsafe.tar")
 	for _, preview := range []bool{false, true} {
-		args := []string{"restore", "--repository=repo", "--archive-name=unsafe", "--destination=new"}
+		args := []string{"archive", "restore", "--repository=repo", "--archive-name=unsafe", "--destination=new"}
 		if preview {
 			args = append(args, "--dry-run")
 		}
@@ -271,7 +271,7 @@ func TestRealBorgRestoreFailuresAndLocking(t *testing.T) {
 	repository := filepath.Join(mustGetwd(t), "repo")
 	borgOutput(t, ctx, binary, "", "init", "--encryption=none", repository)
 	destination := filepath.Join(t.TempDir(), "new")
-	args := []string{"restore", "--repository=" + repository, "--archive-name=missing", "--destination=" + destination}
+	args := []string{"archive", "restore", "--repository=" + repository, "--archive-name=missing", "--destination=" + destination}
 	var stdout, stderr bytes.Buffer
 	if code := Run(ctx, args, &stdout, &stderr, "test"); code != 2 {
 		t.Fatalf("missing archive code=%d stderr=%s", code, &stderr)

@@ -46,14 +46,14 @@ func fakeRestoreData(t *testing.T) string {
 }
 
 func restoreArgs(destination string) []string {
-	return []string{"restore", "--repository=repo", "--archive-name=snapshot", "--destination=" + destination}
+	return []string{"archive", "restore", "--repository=repo", "--archive-name=snapshot", "--destination=" + destination}
 }
 
 func TestRestoreInvalidInvocation(t *testing.T) {
 	t.Setenv("PATH", "")
 	t.Setenv("BORG_REPO", "/must-not-be-used")
 	destination := filepath.Join(t.TempDir(), "new")
-	argsList := [][]string{{"restore"}, {"restore", "--repository=repo"}, {"restore", "--repository=repo", "--archive-name=name"}}
+	argsList := [][]string{{"archive", "restore"}, {"archive", "restore", "--repository=repo"}, {"archive", "restore", "--repository=repo", "--archive-name=name"}}
 	for _, extra := range []string{
 		"--destination=", "--repository=", "--archive-name=", "--archive-name={now}", "--passphrase-file=",
 		"--identity-file=", "--lock-wait=-1", "--lock-wait=1.5", "--lock-wait=", "--lock-wait=999999999999999999999",
@@ -74,10 +74,10 @@ func TestRestoreInvalidInvocation(t *testing.T) {
 func TestRestoreHelpAndCompletion(t *testing.T) {
 	t.Setenv("PATH", "")
 	var stdout, stderr bytes.Buffer
-	if code := Run(t.Context(), []string{"restore", "--help"}, &stdout, &stderr, "test"); code != 0 || stderr.Len() != 0 {
+	if code := Run(t.Context(), []string{"archive", "restore", "--help"}, &stdout, &stderr, "test"); code != 0 || stderr.Len() != 0 {
 		t.Fatalf("code=%d stderr=%s", code, &stderr)
 	}
-	for _, text := range []string{"--allow-existing", "may be replaced", "not a sandbox", "not modified concurrently", "--dry-run", "literal archive-relative"} {
+	for _, text := range []string{"cairn archive restore", "--destination DIR [PATH...]", "--allow-existing", "may be replaced", "not a sandbox", "not modified concurrently", "--dry-run", "literal archive-relative"} {
 		if !strings.Contains(stdout.String(), text) {
 			t.Errorf("help missing %q", text)
 		}
@@ -86,12 +86,12 @@ func TestRestoreHelpAndCompletion(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{""}, "restore"},
-		{[]string{"restore", "--"}, "--allow-existing"},
-		{[]string{"restore", "--destination", ""}, ":16\n"},
-		{[]string{"restore", "--archive-name", ""}, ":4\n"},
-		{[]string{"restore", ""}, ":4\n"},
-		{[]string{"restore", "--repository", "ssh://user@host/repo"}, ":4\n"},
+		{[]string{"archive", ""}, "restore"},
+		{[]string{"archive", "restore", "--"}, "--allow-existing"},
+		{[]string{"archive", "restore", "--destination", ""}, ":16\n"},
+		{[]string{"archive", "restore", "--archive-name", ""}, ":4\n"},
+		{[]string{"archive", "restore", ""}, ":4\n"},
+		{[]string{"archive", "restore", "--repository", "ssh://user@host/repo"}, ":4\n"},
 	} {
 		code, out, errOut := runCompletion(t, tt.args...)
 		if code != 0 || !strings.Contains(out, tt.want) {
@@ -118,12 +118,12 @@ func TestRestoreInvocation(t *testing.T) {
 		if preview {
 			args = append(args, "--dry-run")
 		}
-		args = append(args, "--", "-literal")
+		args = append(args, "--", "-literal", "sh:literal")
 		if code := Run(t.Context(), args, &stdout, &stderr, "test"); code != 0 {
 			t.Fatalf("code=%d stderr=%s", code, &stderr)
 		}
 		got := readRecord(t, record)
-		want := []string{"extract", "--log-json", "--lock-wait", "8", "--list", "--progress", "--", filepath.Join(cwd, "repo") + "::snapshot", "pp:-literal"}
+		want := []string{"extract", "--log-json", "--lock-wait", "8", "--list", "--progress", "--", filepath.Join(cwd, "repo") + "::snapshot", "pp:-literal", "pp:sh:literal"}
 		wantDir := filepath.Join(cwd, "new")
 		if preview {
 			want = append([]string{"extract", "--log-json", "--dry-run"}, want[2:]...)

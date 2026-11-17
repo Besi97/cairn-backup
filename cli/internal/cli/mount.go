@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -14,8 +15,9 @@ import (
 func newArchiveMountCommand() *cobra.Command {
 	var options mount.Options
 	var lockWait string
+	var destination string
 	cmd := &cobra.Command{
-		Use:   "mount --repository LOCATION --archive-name NAME MOUNTPOINT",
+		Use:   "mount --repository LOCATION --archive-name NAME --destination DIR",
 		Short: "Mount one archive read-only in the foreground",
 		Long: "Mount one archive read-only, without loading configuration.\n\n" +
 			"Requires separately installed FUSE support and an empty, user-owned directory\n" +
@@ -24,8 +26,12 @@ func newArchiveMountCommand() *cobra.Command {
 			"SIGTERM, crashes, and forced shutdown may leave a stale mount; no automatic\n" +
 			"cleanup is attempted. Archived symlinks may point outside the mount.\n" +
 			"No background mode, permission overrides, or arbitrary mount options.",
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if destination == "" {
+				return errors.New("--destination is required and must not be empty")
+			}
 			for _, name := range []string{"repository", "archive-name", "passphrase-file", "identity-file"} {
 				value, _ := cmd.Flags().GetString(name)
 				if cmd.Flags().Changed(name) && value == "" {
@@ -43,7 +49,7 @@ func newArchiveMountCommand() *cobra.Command {
 			if err != nil {
 				return &exitError{code: exitFailure, err: err}
 			}
-			request, err := mount.Prepare(options, dir, args[0])
+			request, err := mount.Prepare(options, dir, destination)
 			if err != nil {
 				return err
 			}
@@ -53,33 +59,40 @@ func newArchiveMountCommand() *cobra.Command {
 	flags := cmd.Flags()
 	flags.StringVar(&options.Repository, "repository", "", "Existing local repository or Borg SSH location (required)")
 	flags.StringVar(&options.ArchiveName, "archive-name", "", "Archive name; Borg expands placeholders (required)")
+	flags.StringVar(&destination, "destination", "", "Existing empty, user-owned mount directory (required)")
 	flags.StringVar(&options.PassphraseFile, "passphrase-file", "", "Passphrase file, relative to the invocation directory")
 	flags.StringVar(&options.IdentityFile, "identity-file", "", "SSH identity file, relative to the invocation directory")
 	flags.StringVar(&lockWait, "lock-wait", strconv.Itoa(borg.DefaultLockWait), "Borg lock-acquisition timeout in `SECONDS`; zero does not wait")
 	registerRepositoryCompletion(cmd)
 	registerFileCompletion(cmd, "passphrase-file")
 	registerFileCompletion(cmd, "identity-file")
+	registerDirectoryCompletion(cmd, "destination")
 	registerNoFileCompletion(cmd, "archive-name")
 	registerNoFileCompletion(cmd, "lock-wait")
 	return cmd
 }
 
 func newArchiveUnmountCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "unmount MOUNTPOINT",
+	var destination string
+	cmd := &cobra.Command{
+		Use:   "unmount --destination DIR",
 		Short: "Unmount a verified same-user Borg FUSE mount",
 		Long: "Unmount an exact Linux mountpoint verified as a same-user Borg FUSE mount.\n\n" +
 			"Native Borg mounts are accepted; Cairn does not track mount ownership.\n" +
 			"Missing, ambiguous, and unrelated mounts are refused. No force/lazy unmount,\n" +
 			"privilege escalation, repository access, or configuration loading.\n" +
 			"Close readers first. Concurrent same-user mount replacement is a trust boundary.",
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if destination == "" {
+				return errors.New("--destination is required and must not be empty")
+			}
 			dir, err := os.Getwd()
 			if err != nil {
 				return &exitError{code: exitFailure, err: err}
 			}
-			target, err := mount.Target(dir, args[0])
+			target, err := mount.Target(dir, destination)
 			if err != nil {
 				return err
 			}
@@ -87,6 +100,9 @@ func newArchiveUnmountCommand() *cobra.Command {
 			return runMountOperation(cmd, request, true)
 		},
 	}
+	cmd.Flags().StringVar(&destination, "destination", "", "Exact same-user Borg mount directory (required)")
+	registerDirectoryCompletion(cmd, "destination")
+	return cmd
 }
 
 func runMountOperation(cmd *cobra.Command, request borg.Request, unmount bool) error {

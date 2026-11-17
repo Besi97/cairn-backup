@@ -96,6 +96,5 @@ func newRootCommand(version string) *cobra.Command {
 	cmd.AddCommand(newTUICommand())
 	cmd.AddCommand(newBackupCommand(), newPruneCommand(), newCompactCommand(), newConfigCommand(), newWorkflowCommand(), newAgentCommand())
 	cmd.AddCommand(newArchiveCommand())
-	cmd.AddCommand(newRestoreCommand())
 	return cmd
 }

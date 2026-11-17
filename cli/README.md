@@ -82,11 +82,13 @@ Mounting requires separately configured FUSE and keeps Cairn in the foreground.
 ## Restore
 
 ```sh
-cairn restore --repository /backups/repo --archive-name snapshot \
+cairn archive restore --repository /backups/repo --archive-name snapshot \
   --destination ./recovered --dry-run Documents
-cairn restore --repository /backups/repo --archive-name snapshot \
+cairn archive restore --repository /backups/repo --archive-name snapshot \
   --destination ./recovered Documents
 ```
+
+Archive restore, mount, and unmount all require `--destination DIR`.
 
 Restore literal archive-relative path prefixes, or omit paths for the whole
 archive. Existing destinations require terminal confirmation or `--allow-existing`;

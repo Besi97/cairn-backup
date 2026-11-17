@@ -43,6 +43,9 @@ func TestCompletionCommandsAndFlags(t *testing.T) {
 		{"config commands", []string{"config", ""}, "check"},
 		{"agent commands", []string{"agent", ""}, "run"},
 		{"agent flags", []string{"agent", "run", "--"}, "--config"},
+		{"archive restore", []string{"archive", "re"}, "restore"},
+		{"archive mount flags", []string{"archive", "mount", "--"}, "--destination"},
+		{"archive unmount flags", []string{"archive", "unmount", "--"}, "--destination"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -51,6 +54,13 @@ func TestCompletionCommandsAndFlags(t *testing.T) {
 				t.Fatalf("code=%d stdout=%q stderr=%q; want %q", code, stdout, stderr, tt.want)
 			}
 		})
+	}
+}
+
+func TestRootCompletionOmitsRestore(t *testing.T) {
+	code, stdout, stderr := runCompletion(t, "")
+	if code != 0 || strings.Contains("\n"+stdout, "\nrestore\t") || !strings.Contains(stdout, "archive\t") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 }
 
@@ -71,6 +81,10 @@ func TestCompletionPathDirectives(t *testing.T) {
 		{"source path", []string{"backup", "some/path"}, ":0\n"},
 		{"credential file", []string{"compact", "--passphrase-file", "some/path"}, ":0\n"},
 		{"agent config", []string{"agent", "run", "--config", "some/path"}, ":0\n"},
+		{"mount destination", []string{"archive", "mount", "--destination", "some/path"}, ":16\n"},
+		{"unmount destination", []string{"archive", "unmount", "--destination", "some/path"}, ":16\n"},
+		{"mount positional", []string{"archive", "mount", ""}, ":4\n"},
+		{"unmount positional", []string{"archive", "unmount", ""}, ":4\n"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			code, stdout, stderr := runCompletion(t, tt.args...)
