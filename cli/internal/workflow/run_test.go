@@ -75,7 +75,7 @@ func TestStageConcurrencyAndBarrier(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	for _, text := range []string{`workflow "manual" stage 1 task 1 backup repository "a"`, "native diagnostic", "completed"} {
+	for _, text := range []string{"cairn [manual 1.1 backup/a]", "borg [manual 1.1 backup/a] native diagnostic", "completed"} {
 		if !strings.Contains(output.String(), text) {
 			t.Fatalf("missing %q in %q", text, &output)
 		}

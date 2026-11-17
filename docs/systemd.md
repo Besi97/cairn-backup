@@ -88,6 +88,10 @@ Borg logs. History storage failures warn without stopping backups. An active
 service only means the agent process is running; inspect the journal to determine
 whether backups are succeeding.
 
+Journal output uses plain attributed lines, without a live task board or cursor
+controls. `borg` identifies forwarded Borg messages; `cairn` identifies native
+task status. See [output formatting](output.md).
+
 The agent loads configuration once at startup. Restart it to apply changes.
 After editing the service account, config path, or unit template, stop and
 disable the old unit, remove `/etc/systemd/system/cairn-agent.service`, run

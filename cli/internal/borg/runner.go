@@ -40,7 +40,10 @@ type Request struct {
 	Dir         string
 	Env         map[string]string
 	Diagnostics io.Writer
-	Access      AccessOptions
+	// Progress opts human operation output into Borg's structured log channel.
+	// A separated Stdout remains untouched.
+	Progress func(Progress) error
+	Access   AccessOptions
 	// Stdout separates result data from stderr diagnostics when non-nil.
 	// Nil preserves the combined diagnostic stream used by existing operations.
 	Stdout io.Writer
@@ -113,12 +116,31 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	cmd.Dir, cmd.Env, cmd.ExtraFiles = req.Dir, access.env, access.files
 	cmd.ExtraFiles = append(append([]*os.File(nil), cmd.ExtraFiles...), r.InheritedFiles...)
 	cmd.Stdout, cmd.Stderr = output, output
+	var logs, plain *logOutput
+	if req.Progress != nil {
+		// Common Borg options are accepted after the operation name. Keep the
+		// option before positional inputs and their "--" separator.
+		args = append([]string(nil), args...)
+		index := 1
+		if access.rsh != "" {
+			index += 2
+		}
+		args = append(args[:index], append([]string{"--log-json"}, args[index:]...)...)
+		cmd.Args = append([]string{path}, args...)
+		logs = &logOutput{writer: output, progress: req.Progress}
+		plain = &logOutput{writer: output, raw: true}
+		cmd.Stdout, cmd.Stderr = plain, logs
+	}
 	var stdout *lockedWriter
 	if req.Stdout != nil {
 		stdout = &lockedWriter{writer: req.Stdout}
 		cmd.Stdout = stdout
 	}
 	err = runProcess(ctx, cmd, shutdownGrace)
+	var logErr error
+	if logs != nil {
+		logErr = errors.Join(plain.flush(), logs.flush())
+	}
 	if ctx.Err() != nil && err != nil {
 		result := processResult(cmd)
 		result.Outcome = Interrupted
@@ -128,6 +150,11 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 		result := processResult(cmd)
 		result.Outcome = Failure
 		return result, fmt.Errorf("write Borg results: %w", errors.Join(stdout.Err(), err))
+	}
+	if logErr != nil {
+		result := processResult(cmd)
+		result.Outcome = Failure
+		return result, fmt.Errorf("write Borg diagnostics: %w", logErr)
 	}
 	if outputErr := output.Err(); outputErr != nil {
 		// Cmd.Wait prefers an ExitError over its output-copy error. A writer

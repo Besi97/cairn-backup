@@ -2,16 +2,135 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/Besi97/cairn-backup/cli/internal/history"
 	"github.com/Besi97/cairn-backup/cli/internal/lifecycle"
+	"github.com/creack/pty"
 )
+
+type historyTerminal struct {
+	mu      sync.Mutex
+	file    *os.File
+	output  bytes.Buffer
+	warning chan struct{}
+}
+
+func (w *historyTerminal) Fd() uintptr { return w.file.Fd() }
+
+func (w *historyTerminal) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	n, err := w.output.Write(p)
+	if bytes.Contains(p, []byte("Warning: local run history")) {
+		select {
+		case w.warning <- struct{}{}:
+		default:
+		}
+	}
+	return n, err
+}
+
+func (w *historyTerminal) text() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.output.String()
+}
+
+func TestHistoryWarningClearsAndRedrawsActiveBoard(t *testing.T) {
+	fakeBorgEnvironment(t)
+	t.Setenv("TERM", "xterm-256color")
+	release := filepath.Join(t.TempDir(), "release")
+	t.Setenv("FAKE_RELEASE", release)
+	master, slave, err := pty.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer master.Close()
+	defer slave.Close()
+	if err := pty.Setsize(slave, &pty.Winsize{Rows: 24, Cols: 100}); err != nil {
+		t.Fatal(err)
+	}
+	stderr := &historyTerminal{file: slave, warning: make(chan struct{}, 1)}
+	path := writeWorkflowConfig(t, `version: 1
+repositories:
+  local: {location: ./repo}
+workflows:
+  manual:
+    stages:
+      - tasks:
+          - {type: compact, repository: local}
+          - {type: compact, repository: local}
+`)
+	started, finished := 0, 0
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	ctx = lifecycle.WithObserver(ctx, func(e lifecycle.Event) error {
+		if e.Kind == lifecycle.TaskStarted {
+			started++
+			if started == 2 {
+				// The first task stays on the board until the fixture is released.
+				pending := filepath.Join(os.Getenv("XDG_STATE_HOME"), "cairn/history/runs.pending")
+				if err := os.WriteFile(pending, nil, 0644); err != nil {
+					t.Error(err)
+				}
+			}
+		}
+		if e.Kind == lifecycle.TaskFinished {
+			finished++
+		}
+		return nil
+	})
+	var stdout bytes.Buffer
+	done := make(chan int, 1)
+	exited := make(chan struct{})
+	go func() {
+		defer close(exited)
+		done <- Run(ctx, []string{"workflow", "run", "manual", "--config", path}, &stdout, stderr, "test")
+	}()
+	defer func() {
+		cancel()
+		select {
+		case <-exited:
+		case <-time.After(5 * time.Second):
+			t.Error("workflow did not stop")
+		}
+	}()
+	select {
+	case <-stderr.warning:
+	case <-ctx.Done():
+		t.Fatalf("missing history warning: %q", stderr.text())
+	}
+	if err := os.WriteFile(release, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("code=%d stderr=%q", code, stderr.text())
+		}
+	case <-ctx.Done():
+		t.Fatal("workflow did not finish")
+	}
+	text := stderr.text()
+	warning := strings.Index(text, "Warning: local run history")
+	if warning < 0 || !strings.HasSuffix(text[:warning], "\r\x1b[J") ||
+		!strings.Contains(text[warning:], "\ncairn [manual ") {
+		t.Fatalf("warning bypassed board clearing/redrawing: %q", text)
+	}
+	if strings.Count(text, "Warning: local run history") != 1 || strings.Contains(stdout.String(), "history") ||
+		started != 2 || finished != 2 || !strings.Contains(stdout.String(), "2 succeeded") {
+		t.Fatalf("started=%d finished=%d stdout=%q stderr=%q", started, finished, &stdout, text)
+	}
+}
 
 func TestCLIHistoryPreservesCallerAndOutcomes(t *testing.T) {
 	for _, tt := range []struct {

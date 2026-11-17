@@ -78,7 +78,7 @@ func TestPruneInvocation(t *testing.T) {
 		t.Fatalf("code = %d, stderr = %s", code, &stderr)
 	}
 	got := readRecord(t, record)
-	want := []string{"prune", "--lock-wait", "8", "--list", "--stats", "--glob-archives=-{hostname}-[ab]*-*",
+	want := []string{"prune", "--log-json", "--lock-wait", "8", "--list", "--stats", "--glob-archives=-{hostname}-[ab]*-*",
 		"--keep-within=2m", "--keep-secondly=-1", "--keep-minutely=2", "--keep-hourly=3", "--keep-daily=4",
 		"--keep-weekly=5", "--keep-monthly=6", "--keep-yearly=7", "--", filepath.Join(cwd, "repo with spaces")}
 	if !reflect.DeepEqual(got.Args, want) || got.Dir != cwd {
@@ -143,7 +143,7 @@ func TestPrunePreview(t *testing.T) {
 		t.Fatalf("code = %d, stderr = %s", code, &stderr)
 	}
 	cwd, _ := os.Getwd()
-	want := []string{"prune", "--lock-wait", "0", "--list", "--glob-archives=documents-*",
+	want := []string{"prune", "--log-json", "--lock-wait", "0", "--list", "--glob-archives=documents-*",
 		"--keep-daily=7", "--dry-run", "--", filepath.Join(cwd, "repo")}
 	if got := readRecord(t, record).Args; !reflect.DeepEqual(got, want) {
 		t.Fatalf("args = %q, want %q", got, want)

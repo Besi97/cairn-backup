@@ -20,6 +20,17 @@ type stream struct {
 	stderr bool
 }
 
+func (w stream) Fd() uintptr {
+	destination := w.output.stdout
+	if w.stderr {
+		destination = w.output.stderr
+	}
+	if fd, ok := destination.(interface{ Fd() uintptr }); ok {
+		return fd.Fd()
+	}
+	return ^uintptr(0)
+}
+
 func (w stream) Write(p []byte) (int, error) {
 	o := w.output
 	o.mu.Lock()

@@ -94,7 +94,7 @@ func newWorkflowCommand() *cobra.Command {
 			if remaining := len(plan.Stages) - len(result.Stages); remaining > 0 {
 				skipped = fmt.Sprintf("; %d later stage(s) not started", remaining)
 			}
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Workflow %q %s%s.\n", plan.Name, outcome, skipped); err != nil {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Workflow %q %s%s; %s.\n", plan.Name, outcome, skipped, result.Tasks); err != nil {
 				return &exitError{code: exitFailure, err: err}
 			}
 			if code != exitSuccess {

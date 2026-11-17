@@ -36,6 +36,11 @@ func archiveBorgEnvironment(t *testing.T) string {
 
 func TestArchiveOutput(t *testing.T) {
 	path := archiveBorgEnvironment(t)
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	if err := os.WriteFile(filepath.Join(state, "cairn"), []byte("not-a-directory"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	for _, inspect := range []bool{false, true} {
 		for _, jsonOutput := range []bool{false, true} {
 			t.Run(strings.Join([]string{map[bool]string{true: "inspect", false: "list"}[inspect], map[bool]string{true: "json", false: "human"}[jsonOutput]}, " "), func(t *testing.T) {
@@ -113,6 +118,11 @@ func TestArchiveInvalidInputs(t *testing.T) {
 
 func TestArchiveFailures(t *testing.T) {
 	path := archiveBorgEnvironment(t)
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	if err := os.WriteFile(filepath.Join(state, "cairn"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
 	for _, tt := range []struct {
 		name   string
 		data   string
