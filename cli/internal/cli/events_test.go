@@ -300,6 +300,8 @@ func TestTUIBrowsingDoesNotEmitLifecycle(t *testing.T) {
 	send("\r")
 	waitFor("Task 1:")
 	send("\r")
+	waitFor("Enter opens the repository view")
+	send("\r")
 	waitFor("Referenced by manual")
 	send("y")
 	waitFor("Section: repositories / local")

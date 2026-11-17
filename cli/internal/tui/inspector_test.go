@@ -38,11 +38,17 @@ func TestInspectorPreviewAndDetailScrolling(t *testing.T) {
 	if m.details.YOffset() != 0 {
 		t.Fatal("new selection retained the previous detail scroll position")
 	}
-	contains(t, m, "Operation: compact", "Repository: remote")
+	contains(t, m, "Operation: compact", "Repository: remote",
+		"Location: ssh://backup@example.invalid/./repo", "Passphrase file: ./not-accessed",
+		"Identity file: ./also-not-accessed", "Enter opens task details.")
 	m, _ = press(m, tea.KeyEnter, 0)
+	if m.page != taskPage {
+		t.Fatal("opening a task skipped task details")
+	}
+	contains(t, m, "Enter opens the repository view")
 	m, _ = press(m, tea.KeyEscape, 0)
 	if m.page != workflowPage || m.task != 1 {
-		t.Fatal("repository back lost the selected task")
+		t.Fatal("task details back lost the selected task")
 	}
 }
 
@@ -75,8 +81,17 @@ func TestNarrowInspectorDrilldown(t *testing.T) {
 		t.Fatal("expanding terminal lost selection")
 	}
 	m, _ = press(m, tea.KeyEnter, 0)
+	if m.page != taskPage {
+		t.Fatal("wide inspector skipped task details")
+	}
+	contains(t, m, "Repository: local", "Location: ./repo", "Passphrase: [redacted]")
+	m, _ = press(m, tea.KeyEnter, 0)
 	if m.page != repositoryPage {
-		t.Fatal("wide inspector required a redundant task detail screen")
+		t.Fatal("task details did not open the repository view")
+	}
+	m, _ = press(m, tea.KeyEscape, 0)
+	if m.page != taskPage {
+		t.Fatal("wide repository view did not return to task details")
 	}
 }
 

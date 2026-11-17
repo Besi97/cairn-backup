@@ -99,6 +99,10 @@ func TestBrowseWorkflowsAndYAML(t *testing.T) {
 		"Stage 1", "> Task 1: backup → local", "Task 2: compact → remote", "Stage 2", "Sources:", "• .")
 	m, _ = press(m, 'j', 0)
 	m, _ = press(m, tea.KeyEnter, 0)
+	if m.page != taskPage {
+		t.Fatal("opening a task skipped task details")
+	}
+	m, _ = press(m, tea.KeyEnter, 0)
 	contains(t, m, "Repository: remote", "stage 1 / task 2", "ssh://backup@example.invalid/./repo",
 		"./not-accessed", "./also-not-accessed")
 	m, _ = press(m, 'y', 0)
@@ -111,6 +115,10 @@ func TestBrowseWorkflowsAndYAML(t *testing.T) {
 	m, _ = press(m, tea.KeyEscape, 0)
 	if m.page != repositoryPage {
 		t.Fatal("YAML back did not return to repository")
+	}
+	m, _ = press(m, tea.KeyEscape, 0)
+	if m.page != taskPage {
+		t.Fatal("repository back did not return to task details")
 	}
 	m, _ = press(m, tea.KeyEscape, 0)
 	m, _ = press(m, 'j', 0)

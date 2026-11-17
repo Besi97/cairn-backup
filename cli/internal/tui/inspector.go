@@ -95,16 +95,25 @@ func (m Model) taskDetail() string {
 	if t.stage == 0 {
 		return "No tasks configured."
 	}
+	action := "Enter opens task details."
+	if m.page == taskPage {
+		action = "Enter opens the repository view to browse its archives."
+	}
 	return section(fmt.Sprintf("Stage %d / Task %d", t.stage, t.task),
-		field("Operation", config.DisplayText(t.Type))+"\n\n"+field("Repository", config.DisplayText(t.Repository))) +
+		field("Operation", config.DisplayText(t.Type))) +
+		"\n\n" + mutedStyle.Render(action) +
 		"\n\n" + section("Task settings", m.configuredFields("workflows", m.workflowName(), "stages",
 		strconv.Itoa(t.stage-1), "tasks", strconv.Itoa(t.task-1))) +
-		"\n\n" + mutedStyle.Render("Configured values only. Enter inspects the repository.")
+		"\n\n" + m.repositoryInfo(t.Repository)
+}
+
+func (m Model) repositoryInfo(name string) string {
+	return section("Repository: "+config.DisplayText(name), m.configuredFields("repositories", name)) +
+		"\n\n" + mutedStyle.Render("Paths are unresolved. Inline credentials are redacted.\nCredential files are never opened for display.")
 }
 
 func (m Model) repositoryDetail(name string) string {
-	return section("Repository: "+config.DisplayText(name), m.configuredFields("repositories", name)) +
-		"\n\n" + mutedStyle.Render("Paths are unresolved. Inline credentials are redacted.\nCredential files are never opened for display.") +
+	return m.repositoryInfo(name) +
 		"\n\n" + mutedStyle.Render("Enter lists archives and may contact this repository.")
 }
 

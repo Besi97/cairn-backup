@@ -60,8 +60,9 @@ and still accept keys. Closing the interface does not stop the agent or unrelate
 Wide terminals (at least 100 columns and 16 rows) show a selection list beside a
 grouped inspector. Up/down changes the selection; Page Up/Page Down scrolls its
 details independently. Narrower terminals use full-width lists and Enter/Escape
-detail navigation. In a narrow workflow view, Enter opens the selected task before
-following its repository.
+detail navigation. Enter on a task always opens task details, including a section
+with its repository's configured information. Enter from task details opens the
+repository view to browse archives.
 Likewise, narrow archive views open repository or archive metadata before Enter
 continues to the next listing.
 

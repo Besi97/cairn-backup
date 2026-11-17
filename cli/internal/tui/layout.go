@@ -112,6 +112,9 @@ func (m Model) footer() string {
 	}
 	if m.split() {
 		keys = "↑↓ select  pgup/pgdn details  enter open"
+		if m.page == workflowPage {
+			keys = "↑↓ select  pgup/pgdn scroll  enter task details"
+		}
 		switch m.page {
 		case workflowsPage, workflowPage, archivesPage:
 			keys += "  y YAML"

@@ -217,9 +217,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.page = filePage
 			case m.page == workflowsPage && len(m.workflowNames()) > 0:
 				m.page, m.task = workflowPage, 0
-			case m.page == workflowPage && len(m.tasks()) > 0 && !m.split():
+			case m.page == workflowPage && len(m.tasks()) > 0:
 				m.page = taskPage
-			case (m.page == workflowPage || m.page == taskPage) && len(m.tasks()) > 0:
+			case m.page == taskPage && len(m.tasks()) > 0:
 				m.repositoryFrom = m.page
 				m.page = repositoryPage
 			default:
