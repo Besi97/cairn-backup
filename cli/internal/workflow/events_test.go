@@ -117,6 +117,9 @@ func TestLockedBusyLifecycle(t *testing.T) {
 		if event.Reason != lifecycle.Busy || event.Outcome != lifecycle.Skipped {
 			t.Fatalf("busy run started work: %+v", event)
 		}
+		if event.ConfigID != identity.Digest() {
+			t.Fatalf("missing configuration identity: %+v", event)
+		}
 	}
 	if events[len(events)-1].Kind != lifecycle.RunSkipped {
 		t.Fatalf("missing terminal skip: %+v", events)

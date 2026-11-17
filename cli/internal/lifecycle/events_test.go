@@ -3,10 +3,27 @@ package lifecycle
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+func TestConfigIdentityIsRunAttribution(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	var events []Event
+	ctx := WithObserver(t.Context(), func(e Event) error {
+		events = append(events, e)
+		return nil
+	})
+	run := New(WithConfigID(ctx, digest), Event{Workflow: "daily"})
+	run.Emit(Event{Kind: RunStarted, ConfigID: "/not-a-config-digest"})
+	run.Emit(Event{Kind: RunFinished, Outcome: Success})
+	New(ctx, Event{Operation: "backup", ConfigID: "/ignored-base-path"}).Emit(Event{Kind: RunStarted})
+	if len(events) != 3 || events[0].ConfigID != digest || events[1].ConfigID != digest || events[2].ConfigID != "" {
+		t.Fatalf("%+v", events)
+	}
+}
 
 func TestConcurrentDeliveryAndIdentity(t *testing.T) {
 	var events []Event

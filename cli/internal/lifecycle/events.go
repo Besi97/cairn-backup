@@ -56,6 +56,7 @@ type Event struct {
 	Source      Source
 	ScheduledAt time.Time
 	Workflow    string
+	ConfigID    string
 	Operation   string
 	Repository  string
 	Preview     bool
@@ -72,6 +73,7 @@ var ErrDelivery = errors.New("lifecycle event delivery failed")
 
 type observerKey struct{}
 type scheduleKey struct{}
+type configKey struct{}
 type delivery struct {
 	mu      sync.Mutex
 	observe Observer
@@ -123,6 +125,12 @@ func WithSchedule(ctx context.Context, due time.Time) context.Context {
 	return context.WithValue(ctx, scheduleKey{}, due)
 }
 
+// WithConfigID attributes configured runs using a runlock.Identity digest.
+// Never pass a configuration path or configuration contents here.
+func WithConfigID(ctx context.Context, digest string) context.Context {
+	return context.WithValue(ctx, configKey{}, digest)
+}
+
 type Run struct {
 	mu       sync.Mutex
 	base     Event
@@ -135,13 +143,14 @@ type Run struct {
 func New(ctx context.Context, base Event) *Run {
 	d, _ := ctx.Value(observerKey{}).(*delivery)
 	due, _ := ctx.Value(scheduleKey{}).(time.Time)
+	configID, _ := ctx.Value(configKey{}).(string)
 	source := Manual
 	if !due.IsZero() {
 		source = Scheduled
 	}
 	return &Run{delivery: d, base: Event{
 		RunID: rand.Text(), Source: source, ScheduledAt: due,
-		Workflow: base.Workflow, Operation: base.Operation,
+		Workflow: base.Workflow, ConfigID: configID, Operation: base.Operation,
 		Repository: base.Repository, Preview: base.Preview,
 	}}
 }
@@ -153,6 +162,7 @@ func (r *Run) Emit(event Event) {
 	event.RunID, event.Sequence, event.Time = r.base.RunID, r.sequence, time.Now().UTC()
 	event.Source, event.ScheduledAt = r.base.Source, r.base.ScheduledAt
 	event.Workflow, event.Preview = r.base.Workflow, r.base.Preview
+	event.ConfigID = r.base.ConfigID
 	if event.Operation == "" {
 		event.Operation = r.base.Operation
 	}

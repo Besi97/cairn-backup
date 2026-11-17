@@ -11,6 +11,7 @@ import (
 
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
 	"github.com/Besi97/cairn-backup/cli/internal/lifecycle"
+	"github.com/Besi97/cairn-backup/cli/internal/runlock"
 	"github.com/Besi97/cairn-backup/cli/internal/workflow"
 )
 
@@ -54,7 +55,14 @@ func TestScheduledLifecycleAndSkips(t *testing.T) {
 
 		started, finished, busy, expired, skippedTasks := 0, 0, 0, 0, 0
 		ids := map[string]bool{}
+		identity, err := runlock.Config(a.selected.Path)
+		if err != nil {
+			t.Fatal(err)
+		}
 		for _, event := range events {
+			if event.ConfigID != identity.Digest() {
+				t.Fatalf("missing configuration identity: %+v", event)
+			}
 			if event.Source != lifecycle.Scheduled || event.ScheduledAt.IsZero() || event.Workflow != "nightly" {
 				t.Fatalf("missing scheduled attribution: %+v", event)
 			}

@@ -47,6 +47,7 @@ type Executor struct {
 // Identity must be captured once when the configuration snapshot is loaded.
 // Runner must be nil or a borg.Runner so descriptor inheritance is guaranteed.
 func (e Executor) RunLocked(ctx context.Context, identity runlock.Identity, plan Plan) (result Result, runErr error) {
+	ctx = lifecycle.WithConfigID(ctx, identity.Digest())
 	ctx, presentation := e.presentation(ctx)
 	defer func() { result.Tasks = presentation.counts }()
 	events := lifecycle.New(ctx, lifecycle.Event{Workflow: plan.Name})

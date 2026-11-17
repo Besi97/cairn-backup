@@ -148,6 +148,36 @@ func writeTUIConfig(t *testing.T, dir, contents string) string {
 
 func TestTUITerminal(t *testing.T) {
 	binary := buildExecutable(t, "cairn", ".")
+	t.Run("unavailable history leaves fullscreen browsing alone", func(t *testing.T) {
+		for _, args := range [][]string{nil, {"tui"}} {
+			dir := t.TempDir()
+			writeTUIConfig(t, dir, tuiConfig)
+			state := filepath.Join(dir, ".local", "state")
+			if err := os.MkdirAll(state, 0700); err != nil {
+				t.Fatal(err)
+			}
+			blocker := filepath.Join(state, "cairn")
+			if err := os.WriteFile(blocker, []byte("not-a-directory"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			s := startTerminal(t, binary, dir, args...)
+			s.waitFor(t, "Configuration:")
+			s.waitFor(t, "\x1b[?1049h")
+			if _, err := io.WriteString(s.file, "q"); err != nil {
+				t.Fatal(err)
+			}
+			s.exit(t, 0)
+			s.waitFor(t, "\x1b[?1049l")
+			if strings.Contains(s.text(), "Warning: local run history") ||
+				strings.Contains(s.text(), "lifecycle event delivery failed") {
+				t.Fatalf("history polluted fullscreen TUI: %q", s.text())
+			}
+			raw, err := os.ReadFile(blocker)
+			if err != nil || string(raw) != "not-a-directory" {
+				t.Fatalf("read-only browsing changed state: %q %v", raw, err)
+			}
+		}
+	})
 	t.Run("launch navigation and resize", func(t *testing.T) {
 		for _, args := range [][]string{
 			nil,

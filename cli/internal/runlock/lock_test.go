@@ -1,6 +1,7 @@
 package runlock
 
 import (
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -40,6 +41,11 @@ func TestIdentityAndNamespaces(t *testing.T) {
 	alias, err := Config(link)
 	if err != nil || alias != id {
 		t.Fatalf("alias identity = %v, %v", alias, err)
+	}
+	digest, err := hex.DecodeString(id.Digest())
+	if err != nil || len(digest) != 32 || alias.Digest() != id.Digest() ||
+		identity(t).Digest() == id.Digest() || (Identity{}).Digest() != "" {
+		t.Fatal("configuration digests must be canonical, distinct, and opaque")
 	}
 	store, err := open(privateTemp(t), "", "")
 	if err != nil {
