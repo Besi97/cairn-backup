@@ -7,10 +7,10 @@ do not need FUSE. Do not delay recovery to configure FUSE: use
 ```sh
 mkdir -m 700 "$HOME/archive-view"
 cairn archive mount --repository /backups/repo \
-  --archive-name documents-before-upgrade "$HOME/archive-view"
+  --archive-name documents-before-upgrade --destination "$HOME/archive-view"
 
 # In another terminal, after closing readers and leaving the mounted directory:
-cairn archive unmount "$HOME/archive-view"
+cairn archive unmount --destination "$HOME/archive-view"
 ```
 
 ## Dependencies and permissions
@@ -46,10 +46,11 @@ interface does not support special filesystem flags or ACLs.
 ## Lifetime, access, and locks
 
 `cairn archive mount` requires explicit `--repository`, `--archive-name`, and
-one positional mountpoint. It mounts exactly one archive, not a whole repository.
+`--destination DIR`. It mounts exactly one archive, not a whole repository.
 There is no background mode, dry run, configuration loading, configured-name
 lookup, or `BORG_REPO` fallback. Borg expands archive placeholders normally.
-Use `--` before mountpoints beginning with a hyphen.
+Positional mountpoints are not accepted by mount or unmount. Use
+`--destination=-view` for a directory name beginning with a hyphen.
 
 Local repository and access-file paths resolve from the invocation directory.
 SSH locations use the existing noninteractive access policy with host-key
@@ -68,7 +69,7 @@ group using the existing bounded shutdown grace period.
 ## Unmount and interrupted cleanup
 
 Close open files, leave the mounted directory in all shells, and explicitly
-run `cairn archive unmount MOUNTPOINT` as the mounting user. Foreground Ctrl+C
+run `cairn archive unmount --destination DIR` as the mounting user. Foreground Ctrl+C
 (SIGINT) normally lets Borg unmount cleanly. SIGTERM, crashes, SIGKILL, or
 escalation after Cairn's shutdown grace period can leave a disconnected/stale
 mount. There is **no automatic crash cleanup**, including after mount failure.

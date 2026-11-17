@@ -1,16 +1,21 @@
 # Manual restore
 
 ```sh
-cairn restore --repository /backups/repo --archive-name documents-before-upgrade \
+cairn archive restore --repository /backups/repo --archive-name documents-before-upgrade \
   --destination ./recovered --dry-run Documents
 
-cairn restore --repository /backups/repo --archive-name documents-before-upgrade \
+cairn archive restore --repository /backups/repo --archive-name documents-before-upgrade \
   --destination ./recovered Documents
 
 # No paths selects the whole archive.
-cairn restore --repository ssh://user@host/./repo --archive-name snapshot \
+cairn archive restore --repository ssh://user@host/./repo --archive-name snapshot \
   --destination ./recovered --passphrase-file ./passphrase --identity-file ~/.ssh/backup
 ```
+
+Restore lives under `cairn archive`, alongside mount and unmount. All three
+require `--destination DIR`; the former root `cairn restore` command and positional
+mount/unmount destinations are no longer accepted. Restore's positional arguments
+remain archive-path selectors, not the destination.
 
 Require explicit nonempty repository, archive name, and destination. Configuration
 is not loaded, `BORG_REPO` is not a fallback, and restores cannot be scheduled or

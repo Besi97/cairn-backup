@@ -83,10 +83,13 @@ func newRootCommand(version string) *cobra.Command {
 		Short:         "Back up and maintain Borg repositories",
 		Long:          "Cairn provides manual backups, repository maintenance, and scheduled workflows for Borg.",
 		Version:       version,
-		Args:          cobra.NoArgs,
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Default root validation checks command names, but skips args after --.
+			if err := cobra.NoArgs(cmd, args); err != nil {
+				return err
+			}
 			return runDefaultTUI(cmd)
 		},
 	}
@@ -96,6 +99,5 @@ func newRootCommand(version string) *cobra.Command {
 	cmd.AddCommand(newTUICommand())
 	cmd.AddCommand(newBackupCommand(), newPruneCommand(), newCompactCommand(), newConfigCommand(), newWorkflowCommand(), newAgentCommand())
 	cmd.AddCommand(newArchiveCommand())
-	cmd.AddCommand(newRestoreCommand())
 	return cmd
 }
