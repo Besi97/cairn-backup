@@ -22,16 +22,49 @@ prints help and succeeds, while `cairn tui` reports an error and exits `3`.
 
 The interface loads and validates one configuration at startup, using the same
 user-then-system discovery as configured CLI commands. Missing or invalid
-configuration exits `3`; `--config ""` is invalid. Configuration is read-only:
-no credential files, repositories, or source paths are accessed. Home shows the
-selected configuration path; configuration contents and secrets are not displayed.
-Quit and reopen to load another configuration.
+configuration exits `3`; `--config ""` is invalid. Configuration is read-only.
+Home, Workflows, Configuration, and Help do not access credential files,
+repositories, or source paths. Configuration views show sanitized, unresolved
+values: inline credentials are redacted, while ordinary paths and credential-file
+paths remain visible. `r` reloads the selected configuration into the TUI only;
+a failed reload keeps the previous snapshot. No agent state is observed or changed.
 
-Use Tab/Shift+Tab, left/right arrows, or h/l to switch between Home and Help.
-`?` toggles Help, Escape returns Home, up/down or j/k scroll, and Page Up/Page Down
-or b/f scroll a page. `q` quits successfully; Ctrl+C exits `130`. Resizing preserves
-the selected view; very small terminals show a resize hint and still accept keys.
-Closing the interface does not stop the agent or unrelated runs.
+Use Tab/Shift+Tab, left/right arrows, or h/l to switch views. `?` toggles Help,
+Escape returns to the parent view, up/down or j/k select or scroll, and
+Page Up/Page Down or b/f scroll a page. `q` quits successfully; Ctrl+C exits `130`.
+Resizing preserves the selected view; very small terminals show a resize hint
+and still accept keys. Closing the interface does not stop the agent or unrelated runs.
+
+### Archive browser
+
+In Archives, select a configured repository and press Enter to list archives,
+then select an archive to browse file metadata. Enter also opens archives from a
+workflow's repository detail view. These explicit browsing actions access the
+repository and configured credentials using the shared noninteractive Borg runner.
+Borg may acquire locks and update local state; no backup, restore, check, mount,
+or maintenance actions are offered.
+
+`/` edits a literal, case-sensitive search of Borg's decoded file path text.
+Enter submits it and scans the **whole archive**, not just retained rows. An empty
+query browses all paths. Search text is limited to 1 KiB. Escape discards an edit.
+Each listing retains at most 1,000 matching rows / 8 MiB of metadata, in Borg order;
+larger results are explicitly marked **TRUNCATED**, while the scan continues.
+Long displayed values are shortened with a label; stored metadata is unchanged.
+Enter on a file shows type, permissions, size, timestamp, ownership, link target,
+and Borg's stored healthy marker, not contents or a fresh integrity check.
+
+Scans run asynchronously, with partial results labelled until completion. Warnings
+and failures are not presented as clean or complete results. Native diagnostics
+are withheld from the TUI because arbitrary Borg/passcommand output can contain
+secrets; use `cairn archive` for diagnostics. Submitting another search cancels the
+previous scan and waits for its cleanup before starting the replacement.
+Leaving a list cancels its scan; returning to an archive list rereads it.
+Quit and signals cancel owned listings and wait for subprocess cleanup.
+There is no persistent cache or automatic retry.
+
+**Archive names, file paths, and link targets are lossy display text, never
+byte-exact restore selectors.** Terminal controls are escaped. See the
+[archive inspection contract](../docs/archive-inspection.md).
 
 ## Backup
 

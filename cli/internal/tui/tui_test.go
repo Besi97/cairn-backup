@@ -90,7 +90,7 @@ func TestResizeAndScroll(t *testing.T) {
 			t.Fatal("resize lost navigation")
 		}
 	}
-	for range 20 {
+	for range 60 {
 		m, _ = press(m, tea.KeyDown, 0)
 	}
 	if m.body.YOffset() == 0 || !strings.Contains(m.View().Content, "unrelated runs") {
