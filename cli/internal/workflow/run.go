@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
+	"github.com/Besi97/cairn-backup/cli/internal/display"
 	"github.com/Besi97/cairn-backup/cli/internal/lifecycle"
 	"github.com/Besi97/cairn-backup/cli/internal/runlock"
 )
@@ -22,10 +23,11 @@ type TaskResult struct {
 	Err    error
 }
 
-// Result includes only stages that were started, in configuration order.
+// Stages includes started stages in configuration order; Tasks also counts skips.
 type Result struct {
 	Outcome borg.Outcome
 	Stages  [][]TaskResult
+	Tasks   TaskCounts
 }
 
 type Executor struct {
@@ -45,6 +47,8 @@ type Executor struct {
 // Identity must be captured once when the configuration snapshot is loaded.
 // Runner must be nil or a borg.Runner so descriptor inheritance is guaranteed.
 func (e Executor) RunLocked(ctx context.Context, identity runlock.Identity, plan Plan) (result Result, runErr error) {
+	ctx, presentation := e.presentation(ctx)
+	defer func() { result.Tasks = presentation.counts }()
 	events := lifecycle.New(ctx, lifecycle.Event{Workflow: plan.Name})
 	delegated := false
 	defer func() {
@@ -92,17 +96,19 @@ func (e Executor) RunLocked(ctx context.Context, identity runlock.Identity, plan
 	runner.InheritedFiles = append(append([]*os.File(nil), runner.InheritedFiles...), files...)
 	e.Runner = runner
 	delegated = true
-	return e.run(ctx, plan, events)
+	return e.run(ctx, plan, events, presentation)
 }
 
 // Run is the uncoordinated execution primitive; entry points use RunLocked.
 // It waits for all siblings even after a warning or failure. Only cancellation
 // interrupts active operations, and all runners return before Run returns.
-func (e Executor) Run(ctx context.Context, plan Plan) (Result, error) {
-	return e.run(ctx, plan, lifecycle.New(ctx, lifecycle.Event{Workflow: plan.Name}))
+func (e Executor) Run(ctx context.Context, plan Plan) (result Result, runErr error) {
+	ctx, presentation := e.presentation(ctx)
+	defer func() { result.Tasks = presentation.counts }()
+	return e.run(ctx, plan, lifecycle.New(ctx, lifecycle.Event{Workflow: plan.Name}), presentation)
 }
 
-func (e Executor) run(ctx context.Context, plan Plan, events *lifecycle.Run) (result Result, runErr error) {
+func (e Executor) run(ctx context.Context, plan Plan, events *lifecycle.Run, presentation *presentation) (result Result, runErr error) {
 	events.Emit(lifecycle.Event{Kind: lifecycle.RunStarted})
 	defer func() {
 		reason := lifecycle.PriorFailure
@@ -112,6 +118,10 @@ func (e Executor) run(ctx context.Context, plan Plan, events *lifecycle.Run) (re
 			reason = lifecycle.PriorWarning
 		}
 		skipStages(events, plan, len(result.Stages), reason)
+		if outputErr := errors.Join(presentation.err, e.Output.Err()); outputErr != nil {
+			result.Outcome = borg.Failure
+			runErr = errors.Join(runErr, outputErr)
+		}
 		events.Emit(lifecycle.Event{Kind: lifecycle.RunFinished, Outcome: lifecycle.FromBorg(result.Outcome)})
 	}()
 	runner := e.Runner
@@ -119,9 +129,6 @@ func (e Executor) run(ctx context.Context, plan Plan, events *lifecycle.Run) (re
 		runner = borg.Runner{}
 	}
 	output := e.Output
-	if output == nil {
-		output = NewOutput(e.Stdout, e.Stderr)
-	}
 	result = Result{Outcome: borg.Success}
 	for i, stage := range plan.Stages {
 		if err := ctx.Err(); err != nil {
@@ -144,9 +151,9 @@ func (e Executor) run(ctx context.Context, plan Plan, events *lifecycle.Run) (re
 				}
 				event.Kind = lifecycle.TaskStarted
 				events.Emit(event)
-				label := fmt.Sprintf("[workflow %q stage %d task %d %s repository %q] ",
-					plan.Name, i+1, j+1, task.Type, task.Repository)
-				results[j] = runTask(ctx, runner, output, label, task)
+				attribution := taskAttribution(plan.Name, i+1, j+1, task.Type, task.Repository)
+				id := display.TaskID{Run: presentation.runID, Stage: i + 1, Task: j + 1}
+				results[j] = runTask(ctx, runner, output, id, attribution, task)
 				event.Kind, event.Outcome = lifecycle.TaskFinished, lifecycle.FromBorg(results[j].Result.Outcome)
 				if results[j].Err != nil && event.Outcome != lifecycle.Interrupted {
 					event.Outcome = lifecycle.Failure
@@ -218,20 +225,28 @@ func skipRun(events *lifecycle.Run, plan Plan, reason lifecycle.Reason) {
 	events.Emit(lifecycle.Event{Kind: lifecycle.RunSkipped, Outcome: lifecycle.Skipped, Reason: reason})
 }
 
-func runTask(ctx context.Context, runner OperationRunner, output *Output, label string, task Task) TaskResult {
+func runTask(ctx context.Context, runner OperationRunner, output *Output, id display.TaskID, attribution string, task Task) TaskResult {
 	failed := TaskResult{Result: borg.Result{Outcome: borg.Failure, ExitCode: -1}}
 	if err := ctx.Err(); err != nil {
 		failed.Result.Outcome, failed.Err = borg.Interrupted, err
 		return failed
 	}
-	diagnostics := &taskWriter{output: output, label: label}
-	if _, err := fmt.Fprintln(diagnostics, task.Scope); err != nil {
+	label := display.Label("cairn", attribution)
+	if _, err := fmt.Fprintln(output.Writer(false, label), task.Scope); err != nil {
 		failed.Err = err
 		return failed
 	}
 	request := task.Request
+	diagnostics := display.NewLines(output.Writer(false, display.Label("borg", attribution)))
 	request.Diagnostics = diagnostics
+	request.Progress = func(progress borg.Progress) error { return output.Progress(id, attribution, progress) }
 	result, err := runner.Run(ctx, request)
+	outputErr := diagnostics.Flush()
+	output.FinishTask(id)
+	if outputErr = errors.Join(outputErr, output.Err()); outputErr != nil {
+		result.Outcome = borg.Failure
+		err = errors.Join(err, outputErr)
+	}
 	outcome := "failed"
 	switch result.Outcome {
 	case borg.Success:
@@ -241,7 +256,7 @@ func runTask(ctx context.Context, runner OperationRunner, output *Output, label 
 	case borg.Interrupted:
 		outcome = fmt.Sprintf("interrupted (signal %d)", result.Signal)
 	}
-	writer := &taskWriter{output: output, label: label, stdout: true}
+	writer := output.Writer(true, label)
 	if _, outputErr := fmt.Fprintln(writer, outcome); outputErr != nil {
 		result.Outcome = borg.Failure
 		err = errors.Join(err, outputErr)
@@ -249,57 +264,8 @@ func runTask(ctx context.Context, runner OperationRunner, output *Output, label 
 	return TaskResult{Result: result, Err: err}
 }
 
-// Output serializes attributed task chunks and unlabelled diagnostic reports.
-// One mutex covers both streams, even if they refer to the same writer.
-type Output struct {
-	mu             sync.Mutex
-	stdout, stderr io.Writer
-	outErr, errErr error
-}
+type Output = display.Output
 
 func NewOutput(stdout, stderr io.Writer) *Output {
-	return &Output{stdout: stdout, stderr: stderr}
-}
-
-// Write emits an unlabelled diagnostic chunk, e.g. a scheduler lifecycle report.
-func (o *Output) Write(p []byte) (int, error) {
-	return (&taskWriter{output: o}).Write(p)
-}
-
-type taskWriter struct {
-	output *Output
-	label  string
-	stdout bool
-}
-
-func (w *taskWriter) Write(p []byte) (int, error) {
-	o := w.output
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	writer, sticky := o.stderr, &o.errErr
-	if w.stdout {
-		writer, sticky = o.stdout, &o.outErr
-	}
-	if *sticky != nil {
-		return 0, *sticky
-	}
-	if writer == nil {
-		return len(p), nil
-	}
-	if w.label != "" {
-		n, err := io.WriteString(writer, w.label)
-		if err == nil && n != len(w.label) {
-			err = io.ErrShortWrite
-		}
-		if err != nil {
-			*sticky = err
-			return 0, err
-		}
-	}
-	n, err := writer.Write(p)
-	if err == nil && n != len(p) {
-		err = io.ErrShortWrite
-	}
-	*sticky = err
-	return n, err
+	return display.NewOutput(stdout, stderr)
 }

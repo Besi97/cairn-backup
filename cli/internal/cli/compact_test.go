@@ -66,7 +66,7 @@ func TestCompactInvocation(t *testing.T) {
 			t.Fatalf("code = %d, stderr = %s", code, &stderr)
 		}
 		seconds, _ := strconv.Atoi(wait)
-		want := []string{"compact", "--lock-wait", strconv.Itoa(seconds), "--verbose", "--progress", "--", filepath.Join(cwd, "repo with spaces")}
+		want := []string{"compact", "--log-json", "--lock-wait", strconv.Itoa(seconds), "--verbose", "--progress", "--", filepath.Join(cwd, "repo with spaces")}
 		if got := readRecord(t, record); !reflect.DeepEqual(got.Args, want) || got.Dir != cwd {
 			t.Fatalf("invocation = %+v, want %q", got, want)
 		}

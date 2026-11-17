@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
+	"github.com/Besi97/cairn-backup/cli/internal/display"
 	"github.com/Besi97/cairn-backup/cli/internal/lifecycle"
 	"github.com/spf13/cobra"
 )
@@ -12,7 +14,16 @@ import (
 // previewResult is appended only after a completed preview, never after failure.
 func runOperation(cmd *cobra.Command, request borg.Request, operation, status, previewResult string) error {
 	preview, _ := cmd.Flags().GetBool("dry-run")
-	events := lifecycle.New(cmd.Context(), lifecycle.Event{
+	output := display.NewOutput(cmd.OutOrStdout(), cmd.ErrOrStderr())
+	display.AttachDiagnostics(cmd.Context(), output)
+	var runID string
+	ctx := lifecycle.WithAdditionalObserver(cmd.Context(), func(event lifecycle.Event) error {
+		if event.Kind == lifecycle.RunStarted {
+			runID = event.RunID
+		}
+		return output.Observe(event)
+	})
+	events := lifecycle.New(ctx, lifecycle.Event{
 		Operation: cmd.Name(), Preview: preview,
 	})
 	events.Emit(lifecycle.Event{Kind: lifecycle.RunStarted})
@@ -22,11 +33,19 @@ func runOperation(cmd *cobra.Command, request borg.Request, operation, status, p
 		events.Emit(lifecycle.Event{Kind: lifecycle.TaskFinished, Task: 1, Outcome: outcome})
 		events.Emit(lifecycle.Event{Kind: lifecycle.RunFinished, Outcome: outcome})
 	}()
-	if _, err := fmt.Fprintln(cmd.ErrOrStderr(), status); err != nil {
+	if _, err := fmt.Fprintln(output.Writer(false, ""), status); err != nil {
 		return &exitError{code: exitFailure, err: err}
 	}
-	request.Diagnostics = cmd.ErrOrStderr()
+	request.Diagnostics = output.Writer(false, display.Label("borg", cmd.Name()))
+	request.Progress = func(progress borg.Progress) error {
+		return output.Progress(display.TaskID{Run: runID, Task: 1}, cmd.Name(), progress)
+	}
 	result, runErr := (borg.Runner{}).Run(cmd.Context(), request)
+	output.FinishTask(display.TaskID{Run: runID, Task: 1})
+	if err := output.Err(); err != nil {
+		result.Outcome = borg.Failure
+		runErr = errors.Join(runErr, err)
+	}
 	outcome = lifecycle.FromBorg(result.Outcome)
 	code, renderedOutcome := exitFailure, "failed"
 	switch result.Outcome {
@@ -41,7 +60,7 @@ func runOperation(cmd *cobra.Command, request borg.Request, operation, status, p
 	if previewResult != "" && (result.Outcome == borg.Success || result.Outcome == borg.Warning) {
 		suffix = "; " + previewResult + "."
 	}
-	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s%s\n", operation, renderedOutcome, suffix); err != nil {
+	if _, err := fmt.Fprintf(output.Writer(true, ""), "%s %s%s\n", operation, renderedOutcome, suffix); err != nil {
 		outcome = lifecycle.Failure
 		return &exitError{code: exitFailure, err: err}
 	}

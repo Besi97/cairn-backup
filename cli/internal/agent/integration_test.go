@@ -202,7 +202,7 @@ func TestRealBorgScheduledWorkflow(t *testing.T) {
 	output.await(t, `workflow "nightly" skipped: already running`)
 	manual.Close()
 	clock.set(instant("2026-01-01T00:02:05Z"))
-	output.await(t, `workflow "nightly" completed; 0 stage(s) not started`)
+	output.await(t, `workflow "nightly" completed; tasks: 5 succeeded`)
 	const archive = "docs-20260101T000205.000000000Z"
 	listing := string(borgCommand(t, binary, "list", "--short", repository))
 	if strings.TrimSpace(listing) != archive {
@@ -215,7 +215,7 @@ func TestRealBorgScheduledWorkflow(t *testing.T) {
 	if !strings.Contains(output.text(), "reclaiming eligible space") {
 		t.Fatal("compact stage did not run:", output.text())
 	}
-	for _, text := range []string{"stage 4 task 1 check", "stage 5 task 1 check", "Starting repository check", "Starting archive consistency check"} {
+	for _, text := range []string{"nightly 4.1 check/local", "nightly 5.1 check/local", "Starting repository check", "Starting archive consistency check"} {
 		if !strings.Contains(output.text(), text) {
 			t.Errorf("missing scheduled check diagnostics %q:\n%s", text, output.text())
 		}
@@ -287,7 +287,8 @@ func TestRealBorgScheduledCheckDamage(t *testing.T) {
 	output, _, _ := runObserved(t, a)
 	clock.set(instant("2026-01-01T00:01:00Z"))
 	output.await(t, `workflow "integrity" completed with warnings; 1 stage(s) not started`)
-	if !strings.Contains(output.text(), "Invalid segment magic") || strings.Contains(output.text(), "task 1 compact") {
+	if !strings.Contains(output.text(), "Invalid segment magic") ||
+		!strings.Contains(output.text(), "cairn [integrity 2.1 compact/local] skipped: previous stage completed with warnings") {
 		t.Fatal("check warning diagnostics or stage barrier lost:", output.text())
 	}
 	after, err := os.ReadFile(segment)

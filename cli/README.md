@@ -408,6 +408,9 @@ go to stderr. The final human-readable outcome goes to stdout. Archive listing a
 inspection instead stream result rows (or `--json` records) to stdout without a
 summary. Human-readable wording is not a machine-readable API.
 
+Interactive runs use a compact task board; pipes and journals use plain lines.
+See [output formatting and attribution](../docs/output.md) for examples.
+
 | Exit code | Meaning |
 | --- | --- |
 | 0 | Success |

@@ -107,7 +107,7 @@ func TestCheckInvocation(t *testing.T) {
 		if code := Run(t.Context(), args, &stdout, &stderr, "test"); code != 0 {
 			t.Fatalf("code = %d, stderr = %s", code, &stderr)
 		}
-		want := []string{"check", "--lock-wait", tt.wait, "--verbose", "--progress"}
+		want := []string{"check", "--log-json", "--lock-wait", tt.wait, "--verbose", "--progress"}
 		scope := "file contents are NOT cryptographically verified"
 		if tt.verify {
 			want = append(want, "--verify-data")

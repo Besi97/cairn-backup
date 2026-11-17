@@ -75,6 +75,7 @@ type scheduleKey struct{}
 type delivery struct {
 	mu      sync.Mutex
 	observe Observer
+	parent  *delivery
 	failed  atomic.Bool
 }
 
@@ -85,15 +86,37 @@ func WithObserver(ctx context.Context, observe Observer) context.Context {
 	return context.WithValue(ctx, observerKey{}, &delivery{observe: observe})
 }
 
+// WithAdditionalObserver retains existing observers, including their delivery
+// failures. Every observer is called even when another observer fails.
+func WithAdditionalObserver(ctx context.Context, observe Observer) context.Context {
+	parent, _ := ctx.Value(observerKey{}).(*delivery)
+	return context.WithValue(ctx, observerKey{}, &delivery{observe: observe, parent: parent})
+}
+
 func Err(ctx context.Context) error {
 	d, _ := ctx.Value(observerKey{}).(*delivery)
-	if d == nil {
-		return nil
-	}
-	if d.failed.Load() {
-		return ErrDelivery
+	for ; d != nil; d = d.parent {
+		if d.failed.Load() {
+			return ErrDelivery
+		}
 	}
 	return nil
+}
+
+func (d *delivery) emit(event Event) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	failed := false
+	if d.parent != nil {
+		failed = d.parent.emit(event)
+	}
+	if d.observe != nil && d.observe(event) != nil {
+		failed = true
+	}
+	if failed {
+		d.failed.Store(true)
+	}
+	return failed
 }
 
 func WithSchedule(ctx context.Context, due time.Time) context.Context {
@@ -136,13 +159,8 @@ func (r *Run) Emit(event Event) {
 	if event.Repository == "" {
 		event.Repository = r.base.Repository
 	}
-	if r.delivery == nil || r.delivery.observe == nil {
-		return
-	}
-	r.delivery.mu.Lock()
-	defer r.delivery.mu.Unlock()
-	if err := r.delivery.observe(event); err != nil {
-		r.delivery.failed.Store(true)
+	if r.delivery != nil {
+		r.delivery.emit(event)
 	}
 }
 
