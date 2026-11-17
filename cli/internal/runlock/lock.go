@@ -52,6 +52,10 @@ func Open() (*Store, error) {
 }
 
 func open(runtime, state, home string) (*Store, error) {
+	return directories(runtime, state, home, true)
+}
+
+func directories(runtime, state, home string, create bool) (*Store, error) {
 	var base *os.File
 	if filepath.IsAbs(runtime) {
 		base, _ = privateDirectory(runtime)
@@ -65,8 +69,10 @@ func open(runtime, state, home string) (*Store, error) {
 		}
 		// The XDG state parent may be shared; only Cairn's directories must be
 		// private. No lock files are opened through this pathname.
-		if err := os.MkdirAll(state, 0700); err != nil {
-			return nil, fmt.Errorf("create lock state directory: %w", err)
+		if create {
+			if err := os.MkdirAll(state, 0700); err != nil {
+				return nil, fmt.Errorf("create lock state directory: %w", err)
+			}
 		}
 		var err error
 		base, err = os.Open(state)
@@ -81,12 +87,12 @@ func open(runtime, state, home string) (*Store, error) {
 		}
 	}
 	defer base.Close()
-	cairn, err := privateChild(base, "cairn")
+	cairn, err := childDirectory(base, "cairn", create)
 	if err != nil {
 		return nil, err
 	}
 	defer cairn.Close()
-	directory, err := privateChild(cairn, "locks")
+	directory, err := childDirectory(cairn, "locks", create)
 	if err != nil {
 		return nil, err
 	}
@@ -101,9 +107,11 @@ func privateDirectory(path string) (*os.File, error) {
 	return checkDirectory(os.NewFile(uintptr(fd), path))
 }
 
-func privateChild(parent *os.File, name string) (*os.File, error) {
-	if err := syscall.Mkdirat(int(parent.Fd()), name, 0700); err != nil && !errors.Is(err, syscall.EEXIST) {
-		return nil, fmt.Errorf("create private lock directory: %w", err)
+func childDirectory(parent *os.File, name string, create bool) (*os.File, error) {
+	if create {
+		if err := syscall.Mkdirat(int(parent.Fd()), name, 0700); err != nil && !errors.Is(err, syscall.EEXIST) {
+			return nil, fmt.Errorf("create private lock directory: %w", err)
+		}
 	}
 	fd, err := syscall.Openat(int(parent.Fd()), name, syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
 	if err != nil {

@@ -96,6 +96,7 @@ func (e Executor) RunLocked(ctx context.Context, identity runlock.Identity, plan
 	}
 	runner.InheritedFiles = append(append([]*os.File(nil), runner.InheritedFiles...), files...)
 	e.Runner = runner
+	events = lifecycle.New(ctx, lifecycle.Event{Workflow: plan.Name, Execution: runlock.Capture(lock)})
 	delegated = true
 	return e.run(ctx, plan, events, presentation)
 }

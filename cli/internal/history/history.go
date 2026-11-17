@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Besi97/cairn-backup/cli/internal/lifecycle"
+	"github.com/Besi97/cairn-backup/cli/internal/runlock"
 )
 
 const (
@@ -56,6 +57,7 @@ type Summary struct {
 	Incomplete    bool              `json:"incomplete"`
 	Partial       bool              `json:"partial,omitempty"`
 	Tasks         TaskCounts        `json:"tasks"`
+	Execution     *runlock.Evidence `json:"execution,omitempty"`
 }
 
 type snapshot struct {
@@ -258,6 +260,7 @@ func (s *Store) Observe(event lifecycle.Event) error {
 			RunID: event.RunID, ConfigID: event.ConfigID, Workflow: event.Workflow,
 			Source: event.Source, ScheduledAt: event.ScheduledAt, Preview: event.Preview,
 			FirstObserved: event.Time, Incomplete: true,
+			Execution: copyEvidence(event.Execution),
 		})
 		index = len(data.Runs) - 1
 	}
@@ -338,6 +341,7 @@ func validSummary(s Summary) bool {
 			RunID: s.RunID, ConfigID: s.ConfigID, Workflow: s.Workflow, Operation: s.Operation,
 			Source: s.Source, Sequence: s.Sequence, Time: s.LastObserved,
 			Kind: lifecycle.RunStarted, Outcome: s.Outcome, Reason: s.Reason,
+			Execution: s.Execution,
 		})
 }
 
@@ -346,6 +350,9 @@ func operation(s string) bool {
 }
 
 func validEvent(e lifecycle.Event) bool {
+	if e.Execution != nil && (!e.Execution.Valid() || e.ConfigID == "" || e.Workflow == "") {
+		return false
+	}
 	if e.RunID == "" || !label(e.RunID) || !label(e.Workflow) || !digest(e.ConfigID) ||
 		e.Sequence == 0 || e.Time.IsZero() || (e.Operation != "" && !operation(e.Operation)) ||
 		(e.Source != lifecycle.Manual && e.Source != lifecycle.Scheduled) {
@@ -370,4 +377,12 @@ func validEvent(e lifecycle.Event) bool {
 		return false
 	}
 	return true
+}
+
+func copyEvidence(e *runlock.Evidence) *runlock.Evidence {
+	if e == nil {
+		return nil
+	}
+	copy := *e
+	return &copy
 }

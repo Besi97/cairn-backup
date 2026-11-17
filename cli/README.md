@@ -12,7 +12,9 @@ Run events retain the latest 100 small summaries under
 `$XDG_STATE_HOME/cairn/history` (default `~/.local/state/cairn/history`).
 History contains no Borg logs or credentials, and storage failures warn without
 changing operation outcomes. Missing terminal events remain incomplete, not
-proof of running or failed work. See [history limits and safety](../docs/run-history.md).
+proof of running or failed work. Internal read-time owner/lock observations never
+invent outcomes or acquire execution locks. See
+[history limits and crash observations](../docs/run-history.md).
 
 ## Terminal interface
 
@@ -383,8 +385,9 @@ environment for manual and agent invocations, including service managers; see
 are still allowed while an agent is idle.
 
 Agent lifecycle and workflow summaries go to stderr with UTC timestamps; task
-outcomes go to stdout and labelled Borg diagnostics to stderr. No persistent
-run history is stored. Output failure stops the agent and cancels active work.
+outcomes go to stdout and labelled Borg diagnostics to stderr. Bounded local run
+summaries are retained as described above. Output failure stops the agent and
+cancels active work.
 SIGINT/SIGTERM stop dispatching, cancel active workflows, and wait for subprocess
 cleanup before releasing the agent lock.
 

@@ -32,8 +32,9 @@ They are not byte/file statistics or proof of repository health.
 failed, or interrupted. `partial` means a sequence gap was observed, including
 when the first retained event has sequence greater than one. A terminal partial
 record has a known reported outcome but potentially incomplete counts.
-No restart reconciliation, lock probing, inspection command, or execution
-recovery is performed by this store.
+Recorded outcomes are never rewritten after a restart. Read-time execution
+observations are separate from these facts; there is no inspection command or
+execution recovery in the store.
 
 The snapshot payload is capped at 512 KiB. Atomic replacement uses at most one
 512 KiB scratch payload, keeping Cairn-generated history file contents within
@@ -79,16 +80,61 @@ configuration path, matching execution's symlink resolution. It is not a content
 hash, an authorization token, or encryption against guessed paths. Standalone
 operations have no configuration identity and do not discover configuration.
 
+## Crash and restart observations
+
+New locked workflow runs can also retain optional execution evidence: the opaque
+workflow-lock filename and the Cairn owner's Linux boot ID, PID, and process-start
+ticks. Capture failures leave that evidence absent without affecting execution.
+No canonical configuration path is saved. Older records, standalone operations,
+uncoordinated library runs, and attempts that did not acquire a workflow lock have
+no execution evidence and remain **unknown** to inspection.
+
+Inspection uses the current user's runtime/state environment and Linux `/proc`;
+use the same environment and process namespace as execution. It only opens
+existing execution directories/files. It never acquires a workflow or agent lock,
+creates execution state, dispatches work, or contacts Borg.
+
+Owner and lock evidence are independent, momentary observations, not an atomic
+snapshot of execution:
+
+- Owner **present** means boot ID, PID, and start ticks match a non-zombie process.
+  It does not establish that a task is running or that Borg is alive.
+- Owner **gone** means a different boot, absent PID, reused PID, or zombie/dead
+  owner was observed. It says nothing about surviving Borg children.
+- Owner **unknown** covers absent evidence and unreadable/uncertain process data.
+- Lock **held** means a matching flock was positively observed in `/proc/locks`.
+  Its holder could be an inherited Borg child or a later invocation; it does not
+  establish that the recorded owner is alive or that this run is active.
+- Lock **unknown** includes missing/unsafe/inaccessible files, unavailable kernel
+  data, and no matching kernel entry. There is deliberately no “free” state:
+  Linux can omit inherited flocks after the original Cairn owner disappears, even
+  while they still prevent execution. Namespace visibility also limits evidence.
+
+Consequently even a gone owner with an unknown lock leaves an incomplete run's
+outcome unknown, not failed, interrupted, finished, or definitively stopped.
+Age is not liveness evidence. Terminal outcomes, incomplete/partial flags, task
+counts, sequence numbers, timestamps, ordering, and retention do not change during
+inspection. A later run cannot finish an earlier record. Observations are not
+persisted, and history remains neither execution authority nor a queue.
+
 ## Internal consumers
 
 `internal/history.Open()` opens the shared store; `Store.Observe(lifecycle.Event)`
 is a lifecycle observer. `Store.List()` returns a newest-first snapshot and
-never infers liveness. `Store.Close()` releases directory resources. All public
+never infers liveness. `Store.Inspect()` returns newest-first `history.Observation`
+values containing `Summary` and separate `Owner`/`Lock` fields
+(`runlock.OwnerState`/`runlock.LockState`). Storage failures return
+`history.ErrUnavailable`; unavailable execution evidence returns unknown fields,
+not an inspection failure. No configuration file is needed.
+`Store.Close()` releases directory resources. All public
 storage failures return only `history.ErrUnavailable`. The JSON envelope has
-`version: 1` and `runs`; unsupported versions fail closed.
+`version: 1` and `runs`; the optional `execution` object preserves readability of
+older summaries by current readers. Older binaries may refuse the extended
+snapshot rather than silently erase evidence. Unsupported versions fail closed.
 
 `lifecycle.Event.ConfigID` is populated from `runlock.Identity.Digest()` at the
 configured execution boundary, including scheduled preparation failures and
-skipped occurrences. Consumers must keep missing identity, partial summaries,
-and absent terminal events explicit. Existing execution locks remain the sole
-Cairn authority for overlap and any future reconciliation.
+skipped occurrences. `lifecycle.Event.Execution` carries optional
+`runlock.Evidence` only after a workflow lock is acquired. Consumers must keep
+missing identity, partial summaries, and absent terminal events explicit.
+Existing execution locks remain the sole Cairn authority for overlap.

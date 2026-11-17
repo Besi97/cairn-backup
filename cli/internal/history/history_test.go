@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Besi97/cairn-backup/cli/internal/lifecycle"
+	"github.com/Besi97/cairn-backup/cli/internal/runlock"
 )
 
 func event(id string, seq uint64, kind lifecycle.Kind) lifecycle.Event {
@@ -104,6 +105,11 @@ func TestRetentionAndBoundedLargeRuns(t *testing.T) {
 		}
 		e := event(id, 1, lifecycle.RunStarted)
 		e.Workflow = strings.Repeat("w", MaxLabelBytes)
+		e.ConfigID = strings.Repeat("a", 64)
+		e.Execution = &runlock.Evidence{
+			LockKey: "workflow-" + strings.Repeat("b", 64) + ".lock",
+			BootID:  "00000000-0000-0000-0000-000000000000", PID: 1, StartTicks: 1,
+		}
 		if err := s.Observe(e); err != nil {
 			t.Fatal(err)
 		}
