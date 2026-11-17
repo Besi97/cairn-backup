@@ -74,6 +74,11 @@ There is no persistent cache or automatic retry.
 byte-exact restore selectors.** Terminal controls are escaped. See the
 [archive inspection contract](../docs/archive-inspection.md).
 
+## Archive mounting
+
+For optional read-only archive mounts, see [archive mounting](../docs/archive-mounting.md).
+Mounting requires separately configured FUSE and keeps Cairn in the foreground.
+
 ## Backup
 
 Back up to an existing local or SSH repository without configuration or a running
