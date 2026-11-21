@@ -37,9 +37,9 @@ func state(value string) string {
 	switch value {
 	case "success", "Complete.":
 		color = "2"
-	case "warning", "incomplete", "partial", "interrupted", "skipped", "TRUNCATED":
+	case "warning", "incomplete", "partial", "interrupted", "skipped", "TRUNCATED", "Borg warnings", "Scan cancelled":
 		color = "3"
-	case "failure":
+	case "failure", "Scan failed":
 		color = "1"
 	}
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Bold(true).Render(value)

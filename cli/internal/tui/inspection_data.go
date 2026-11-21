@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Besi97/cairn-backup/cli/internal/borg"
 	"github.com/Besi97/cairn-backup/cli/internal/config"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -29,14 +30,25 @@ func (m *Model) archiveInspection() (content, detail, identity string) {
 		if m.page == fileListPage {
 			m.title = "Files / " + displayMetadata(string(b.archive.Name), 512)
 		}
-		status := b.outcome
+		var banner, guidance string
+		status := "Complete."
 		switch {
 		case b.loading:
+			banner = heading("Scanning…")
+			guidance = "Waiting for results."
 			status = "Scanning… results are partial. Esc cancels."
-		case strings.HasPrefix(status, "Completed with Borg warnings"):
+		case b.outcome == borg.Warning:
+			banner = state("Borg warnings")
+			guidance = "Use the archive CLI for diagnostics."
 			status = "Borg warnings; results may be incomplete."
-		case strings.HasPrefix(status, "Failed;"):
+		case b.outcome == borg.Failure:
+			banner = state("Scan failed")
+			guidance = "Check repository access with the archive CLI."
 			status = "Failed; results are partial."
+		case b.outcome == borg.Interrupted:
+			banner = state("Scan cancelled")
+			guidance = "No results were retained."
+			status = "Cancelled; results are partial."
 		}
 		m.notice = status
 		stats := fmt.Sprintf("%d scanned · %d matched · %d retained (limit 1,000 / 8 MiB)", b.scanned, b.matched, len(b.rows))
@@ -84,6 +96,24 @@ func (m *Model) archiveInspection() (content, detail, identity string) {
 		if m.page == archiveDetailPage {
 			m.title, m.subtitle = "Archive metadata", "Repository: "+config.DisplayText(b.name)
 			content, detail = detail, ""
+		} else if banner != "" {
+			switch {
+			case len(items) == 0:
+				content = banner
+				if m.split() {
+					detail = guidance
+				} else {
+					content += "\n" + guidance
+				}
+			case m.body.Height() > 1:
+				if b.outcome != borg.Warning {
+					banner += mutedStyle.Render(" · partial")
+				}
+				content = clipped(banner, m.body.Width()) + "\n" + content
+			default:
+				// Keep the selected row visible in a one-line list.
+				m.subtitle = banner + " · " + m.subtitle
+			}
 		}
 	case filePage:
 		m.title, m.subtitle = "File metadata", "Repository: "+config.DisplayText(b.name)+" / Archive: "+displayMetadata(string(b.archive.Name), 512)
