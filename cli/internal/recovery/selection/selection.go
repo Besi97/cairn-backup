@@ -16,6 +16,9 @@ import (
 // ErrNotFound means a successful listing contained no matching archive.
 var ErrNotFound = errors.New("no matching recovery archive")
 
+// ErrChanged means the selected repository or archive identity changed.
+var ErrChanged = errors.New("recovery archive identity changed")
+
 // Selector requires exactly one nonempty literal byte string. Exact can name a
 // checkpoint explicitly; LatestPrefix skips Borg-generated checkpoint names.
 type Selector struct {
@@ -44,11 +47,8 @@ type Options struct {
 // use the last name in Borg's ascending name order. A failed or warning listing
 // produces no candidate, even if it emitted matching entries.
 //
-// Borg releases its repository lock when the listing ends. For extraction
-// evidence, the caller must resolve (or revalidate the candidate's exact name
-// and both IDs), preflight, and extract against the same repository state,
-// protected throughout by a native lock or a trusted immutable snapshot.
-// Independent before/after listings cannot detect a replace-and-revert race.
+// This is read-only. Borg releases its repository lock when the listing ends;
+// see Revalidate and the integration contract for the resulting limitations.
 func Resolve(ctx context.Context, runner borg.Runner, options Options, selector Selector, diagnostics io.Writer) (Candidate, borg.Result, error) {
 	failed := borg.Result{Outcome: borg.Failure, ExitCode: -1}
 	if (selector.Exact == "") == (selector.LatestPrefix == "") ||
@@ -105,6 +105,9 @@ func Resolve(ctx context.Context, runner borg.Runner, options Options, selector 
 	if result.Outcome == borg.Warning {
 		return Candidate{}, result, errors.New("Borg reported warnings during recovery archive selection")
 	}
+	if result.Outcome != borg.Success {
+		return Candidate{}, result, errors.New("Borg did not complete recovery archive selection successfully")
+	}
 	if listing.err != nil {
 		result.Outcome = borg.Failure
 		return Candidate{}, result, fmt.Errorf("read recovery archive listing: %w", listing.err)
@@ -114,6 +117,29 @@ func Resolve(ctx context.Context, runner borg.Runner, options Options, selector 
 		return Candidate{}, result, ErrNotFound
 	}
 	return listing.candidate, result, nil
+}
+
+// Revalidate lists the same repository and exact name again and compares both
+// IDs. Disappearance, changed identity, warnings and failures all fail closed;
+// it never selects a replacement or repeats a latest-prefix selection.
+//
+// Use the same Options as Resolve, immediately before and after extraction.
+// These read-only checks detect observed changes in cooperative workflows;
+// they cannot detect replace-and-revert or ensure that separate preflight and
+// extraction commands saw the checked archive.
+func Revalidate(ctx context.Context, runner borg.Runner, options Options, candidate Candidate, diagnostics io.Writer) (borg.Result, error) {
+	if candidate.Name == "" || !validID(candidate.RepositoryID) || !validID(candidate.ArchiveID) {
+		return borg.Result{Outcome: borg.Failure, ExitCode: -1}, errors.New("invalid recovery archive candidate")
+	}
+	got, result, err := Resolve(ctx, runner, options, Selector{Exact: candidate.Name}, diagnostics)
+	if err != nil {
+		return result, err
+	}
+	if got != candidate {
+		result.Outcome = borg.Failure
+		return result, ErrChanged
+	}
+	return result, nil
 }
 
 var checkpoint = regexp.MustCompile(`\.checkpoint(\.[0-9]+)?$`)

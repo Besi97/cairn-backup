@@ -87,11 +87,20 @@ func TestRealBorgRecoverySelection(t *testing.T) {
 	resolve(Selector{LatestPrefix: "pending"}, "")
 	resolve(Selector{LatestPrefix: "set*"}, "")
 
+	if _, err := Revalidate(ctx, runner, options, latest, nil); err != nil {
+		t.Fatalf("revalidate unchanged archive: %v", err)
+	}
 	run("rename", "--", repo+"::"+latest.Name, "renamed")
 	resolve(Selector{Exact: latest.Name}, "")
+	if _, err := Revalidate(ctx, runner, options, latest, nil); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("revalidate missing archive: %v", err)
+	}
 	create(latest.Name, "08")
 	replaced := resolve(Selector{Exact: latest.Name}, latest.Name)
 	if latest.ArchiveID == replaced.ArchiveID || latest.RepositoryID != replaced.RepositoryID {
 		t.Fatal("manifest evidence did not distinguish replacement at the same name")
+	}
+	if _, err := Revalidate(ctx, runner, options, latest, nil); !errors.Is(err, ErrChanged) {
+		t.Fatalf("revalidate replaced archive: %v", err)
 	}
 }
