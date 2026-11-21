@@ -16,6 +16,10 @@ import (
 
 const shutdownGrace = 5 * time.Second
 
+// ErrProcessGroupNotStopped means a caller must not assume Borg and its owned
+// descendants are done using local resources, even after Runner.Run returns.
+var ErrProcessGroupNotStopped = errors.New("Borg process group did not stop")
+
 // runProcess owns a separate local process group, including children retaining
 // output pipes after the leader exits. Only the direct child can be reaped here;
 // orphan descendants are reaped by their ancestor or the system's init process.
@@ -82,17 +86,17 @@ func awaitLeader(pid int) error {
 
 func stopGroup(pgid int, signal syscall.Signal, grace time.Duration) error {
 	if err := syscall.Kill(-pgid, signal); err != nil && !errors.Is(err, syscall.ESRCH) {
-		return fmt.Errorf("stop Borg process group: %w", err)
+		return errors.Join(ErrProcessGroupNotStopped, fmt.Errorf("stop Borg process group: %w", err))
 	}
 	deadline := time.Now().Add(grace)
 	escalated := false
 	for groupRunning(pgid) {
 		if time.Now().After(deadline) {
 			if escalated {
-				return errors.New("Borg process group did not stop after SIGKILL")
+				return fmt.Errorf("%w after SIGKILL", ErrProcessGroupNotStopped)
 			}
 			if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
-				return fmt.Errorf("kill Borg process group: %w", err)
+				return errors.Join(ErrProcessGroupNotStopped, fmt.Errorf("kill Borg process group: %w", err))
 			}
 			escalated = true
 			deadline = time.Now().Add(grace)

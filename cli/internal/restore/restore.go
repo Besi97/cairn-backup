@@ -24,6 +24,15 @@ type Options struct {
 	DryRun         bool
 }
 
+// ExtractionOptions describes extraction independently of repository access.
+type ExtractionOptions struct {
+	ArchiveName string
+	Destination string
+	Paths       []string
+	LockWait    *int
+	DryRun      bool
+}
+
 // Plan retains byte-exact caller input, never archive.DisplayText. Repository and
 // destination must be trusted and unchanged by other processes throughout Run.
 type Plan struct {
@@ -40,6 +49,17 @@ func Prepare(options Options, invocationDir string) (Plan, error) {
 	}, invocationDir)
 	if err != nil {
 		return Plan{}, err
+	}
+	return PrepareExtraction(repository, ExtractionOptions{
+		ArchiveName: options.ArchiveName, Destination: options.Destination,
+		Paths: options.Paths, LockWait: options.LockWait, DryRun: options.DryRun,
+	}, invocationDir)
+}
+
+// PrepareExtraction accepts a trusted repository with its access already resolved.
+func PrepareExtraction(repository borg.PreparedRepository, options ExtractionOptions, invocationDir string) (Plan, error) {
+	if repository.Location == "" || !filepath.IsAbs(invocationDir) {
+		return Plan{}, errors.New("restore requires a prepared repository and an absolute invocation directory")
 	}
 	if options.ArchiveName == "" || strings.ContainsAny(options.ArchiveName, "/\x00") ||
 		strings.Contains(options.ArchiveName, "::") || strings.ContainsAny(options.ArchiveName, "{}") {
@@ -73,13 +93,13 @@ func Prepare(options Options, invocationDir string) (Plan, error) {
 		return Plan{}, errors.New("destination parent must be an existing directory")
 	}
 	if !repository.Access.SSH {
-		local := strings.TrimPrefix(repository.Location, "file://")
-		local, err = filepath.EvalSymlinks(local)
+		location := strings.TrimPrefix(repository.Location, "file://")
+		local, err := filepath.EvalSymlinks(location)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return Plan{}, fmt.Errorf("resolve local repository: %w", err)
 		}
 		if local == "" {
-			local = strings.TrimPrefix(repository.Location, "file://")
+			local = location
 		}
 		if beneath(destination, local) || beneath(local, destination) {
 			return Plan{}, errors.New("destination and local repository must not overlap")
