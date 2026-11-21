@@ -120,6 +120,80 @@ func TestArchiveBrowseAndFullSearch(t *testing.T) {
 	}
 }
 
+func TestArchiveScanStatusInPanels(t *testing.T) {
+	tests := []struct {
+		name, banner, notice string
+		outcome              borg.Outcome
+		err                  error
+		row                  bool
+	}{
+		{name: "empty", banner: "No retained results.", notice: "Complete.", outcome: borg.Success},
+		{name: "failure", banner: "Scan failed", notice: "Failed; results are partial.", outcome: borg.Failure},
+		{name: "partial failure", banner: "Scan failed · partial", notice: "Failed; results are partial.",
+			outcome: borg.Success, err: errors.New("unsafe-scan-diagnostic"), row: true},
+		{name: "warning", banner: "Borg warnings", notice: "Borg warnings; results may be incomplete.", outcome: borg.Warning},
+		{name: "cancelled", banner: "Scan cancelled", notice: "Cancelled; results are partial.", outcome: borg.Interrupted},
+	}
+	for _, files := range []bool{false, true} {
+		for _, width := range []int{40, 100} {
+			for _, tt := range tests {
+				t.Run(fmt.Sprintf("files=%t/width=%d/%s", files, width, tt.name), func(t *testing.T) {
+					m := archiveModel(t, func(_ context.Context, _ *config.Config, _, _ string, emit func(metadata) error) (borg.Result, error) {
+						if tt.row {
+							if err := emit(metadata{archive: archive.Archive{Name: "retained"}, file: archive.File{Path: "retained"}}); err != nil {
+								return borg.Result{}, err
+							}
+						}
+						return borg.Result{Outcome: tt.outcome}, tt.err
+					})
+					m.page, m.browser.name, m.browser.archive.Name = archiveListPage, "local", "test"
+					if files {
+						m.page = fileListPage
+					}
+					next, _ := m.Update(tea.WindowSizeMsg{Width: width, Height: 24})
+					m = next.(Model)
+					next, cmd := m.startBrowse(files)
+					m = next.(Model)
+					checkPanel := func(want string) {
+						t.Helper()
+						list := ansi.Strip(m.body.View())
+						if !strings.Contains(list, want) ||
+							(want != "No retained results." && strings.Contains(list, "No retained results.")) {
+							t.Fatalf("expected %q in list panel, got %q", want, list)
+						}
+					}
+					checkPanel("Scanning…")
+					if m.split() && !strings.Contains(ansi.Strip(m.details.View()), "Waiting for results.") {
+						t.Fatal("empty inspector did not explain the wait")
+					}
+					if tt.row {
+						m, cmd = nextScan(t, m, cmd)
+						checkPanel("Scanning… · partial")
+						checkPanel("> retained")
+					}
+					m = finishScan(t, m, cmd)
+					checkPanel(tt.banner)
+					if !strings.HasPrefix(m.notice, tt.notice) || strings.Contains(ansi.Strip(m.View().Content), "unsafe-scan-diagnostic") {
+						t.Fatalf("unexpected notice or diagnostic in view: %q", m.notice)
+					}
+					if tt.row {
+						checkPanel("> retained")
+						if m.split() && !strings.Contains(ansi.Strip(m.details.View()), "Stored metadata") {
+							t.Fatal("partial result lost its details")
+						}
+						next, _ = m.Update(tea.WindowSizeMsg{Width: 24, Height: 10})
+						m = next.(Model)
+						view := ansi.Strip(m.View().Content)
+						if !strings.Contains(view, "Scan failed") || !strings.Contains(view, "> retained") {
+							t.Fatalf("smallest layout hid status or selection:\n%s", view)
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
 func TestBrowseByteLimitAndOutcomes(t *testing.T) {
 	for _, outcome := range []borg.Outcome{borg.Success, borg.Warning, borg.Failure, borg.Interrupted} {
 		t.Run(fmt.Sprint(outcome), func(t *testing.T) {

@@ -63,7 +63,7 @@ type archiveBrowser struct {
 	matched    uint64
 	truncated  bool
 	loading    bool
-	outcome    string
+	outcome    borg.Outcome
 	query      string
 	input      string
 	editing    bool
@@ -124,7 +124,7 @@ func (b *archiveBrowser) start(selected *config.Config, files bool) tea.Cmd {
 	job := &scanJob{cancel: cancel, done: make(chan struct{}), updates: make(chan scanUpdate, 1)}
 	b.job = job
 	b.rows, b.cursor, b.scanned, b.matched = nil, 0, 0, 0
-	b.loading, b.truncated, b.outcome = true, false, ""
+	b.loading, b.truncated, b.outcome = true, false, borg.Success
 	name, query, source := b.name, b.query, b.source
 	archiveName := ""
 	if files {
@@ -265,15 +265,9 @@ func (m Model) updateScan(update scanUpdate) (tea.Model, tea.Cmd) {
 	b.scanned, b.matched, b.truncated = update.scanned, update.matched, update.truncated
 	if update.done {
 		b.loading = false
-		switch {
-		case update.result.Outcome == borg.Interrupted:
-			b.outcome = "Cancelled; results are partial."
-		case update.err != nil || update.result.Outcome == borg.Failure:
-			b.outcome = "Failed; results are partial. Check repository access with the archive CLI."
-		case update.result.Outcome == borg.Warning:
-			b.outcome = "Completed with Borg warnings; results may be incomplete. Use the archive CLI for diagnostics."
-		default:
-			b.outcome = "Complete."
+		b.outcome = update.result.Outcome
+		if update.err != nil && b.outcome != borg.Interrupted {
+			b.outcome = borg.Failure
 		}
 	}
 	m.refresh()
