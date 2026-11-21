@@ -154,7 +154,7 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	if logErr != nil {
 		result := processResult(cmd)
 		result.Outcome = Failure
-		return result, fmt.Errorf("write Borg diagnostics: %w", logErr)
+		return result, fmt.Errorf("write Borg diagnostics: %w", errors.Join(logErr, err))
 	}
 	if outputErr := output.Err(); outputErr != nil {
 		// Cmd.Wait prefers an ExitError over its output-copy error. A writer
