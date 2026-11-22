@@ -47,6 +47,16 @@ func (e *CleanupError) Unwrap() error { return e.Err }
 // The system temp directory must be trusted and have enough free space; Run
 // does not reserve space or recover leftovers after a crash or SIGKILL.
 func Run(ctx context.Context, runner borg.Runner, options Options, diagnostics io.Writer, use func(context.Context, string) error) (result borg.Result, err error) {
+	return run(ctx, runner, options, diagnostics, use, nil)
+}
+
+// RunWithCleanup also reports whether a workspace was created and cleanup attempted.
+func RunWithCleanup(ctx context.Context, runner borg.Runner, options Options, diagnostics io.Writer, use func(context.Context, string) error) (result borg.Result, cleanupAttempted bool, err error) {
+	result, err = run(ctx, runner, options, diagnostics, use, &cleanupAttempted)
+	return
+}
+
+func run(ctx context.Context, runner borg.Runner, options Options, diagnostics io.Writer, use func(context.Context, string) error, cleanupAttempted *bool) (result borg.Result, err error) {
 	result = borg.Result{Outcome: borg.Failure, ExitCode: -1}
 	if err := ctx.Err(); err != nil {
 		result.Outcome = borg.Interrupted
@@ -75,6 +85,9 @@ func Run(ctx context.Context, runner borg.Runner, options Options, diagnostics i
 		if errors.Is(err, borg.ErrProcessGroupNotStopped) {
 			cleanupErr = errors.New("left in place because Borg shutdown could not be confirmed")
 		} else {
+			if cleanupAttempted != nil {
+				*cleanupAttempted = true
+			}
 			cleanupErr = remove(private)
 		}
 		if cleanupErr != nil {
