@@ -444,6 +444,9 @@ timezone validation belongs to the loader; editor/schema success alone is not
 enough.
 # Inline recovery checks
 
+For a complete example and results walkthrough, see
+[recovery check walkthrough](recovery-check.md).
+
 `recovery_check` tasks select exactly one literal `archive_name` or
 `archive_prefix` (the latter selects the latest matching archive, excluding
 generated checkpoints). Specify either nonempty `paths` or `whole_archive: true`,

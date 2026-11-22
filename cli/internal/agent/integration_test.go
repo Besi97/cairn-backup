@@ -174,6 +174,13 @@ func TestRealBorgScheduledWorkflow(t *testing.T) {
       - tasks: [{type: compact, repository: local}]
       - tasks: [{type: check, repository: local}]
       - tasks: [{type: check, repository: local, verify_data: true}]
+      - tasks:
+          - type: recovery_check
+            repository: local
+            archive_prefix: docs-
+            paths: [payload]
+            checks: [{kind: file_bytes, path: payload, bytes: "scheduled backup payload\n"}]
+            sample: {live_root: ., limit: 1}
 `, instant("2026-01-01T00:00:00Z"))
 	base := a.selected.Directory
 	repository := filepath.Join(base, "repo")
@@ -202,7 +209,7 @@ func TestRealBorgScheduledWorkflow(t *testing.T) {
 	output.await(t, `workflow "nightly" skipped: already running`)
 	manual.Close()
 	clock.set(instant("2026-01-01T00:02:05Z"))
-	output.await(t, `workflow "nightly" completed; tasks: 5 succeeded`)
+	output.await(t, `workflow "nightly" completed; tasks: 6 succeeded`)
 	const archive = "docs-20260101T000205.000000000Z"
 	listing := string(borgCommand(t, binary, "list", "--short", repository))
 	if strings.TrimSpace(listing) != archive {
@@ -214,6 +221,11 @@ func TestRealBorgScheduledWorkflow(t *testing.T) {
 	}
 	if !strings.Contains(output.text(), "reclaiming eligible space") {
 		t.Fatal("compact stage did not run:", output.text())
+	}
+	for _, text := range []string{"Recovery evidence v1", `Archive: "` + archive + `"`, "Cleanup: passed", "Sample: passed"} {
+		if !strings.Contains(output.text(), text) {
+			t.Errorf("missing scheduled recovery evidence %q:\n%s", text, output.text())
+		}
 	}
 	for _, text := range []string{"nightly 4.1 check/local", "nightly 5.1 check/local", "Starting repository check", "Starting archive consistency check"} {
 		if !strings.Contains(output.text(), text) {
