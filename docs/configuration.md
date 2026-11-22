@@ -441,3 +441,36 @@ after the local Borg process exits.
 The schema checks schedule field types and nonempty strings. Full cron and
 timezone validation belongs to the loader; editor/schema success alone is not
 enough.
+# Inline recovery checks
+
+`recovery_check` tasks select exactly one literal `archive_name` or
+`archive_prefix` (the latter selects the latest matching archive, excluding
+generated checkpoints). Specify either nonempty `paths` or `whole_archive: true`,
+and at least one assertion in `checks` or a `sample`. The task uses temporary
+extraction, not a Borg repository consistency check. The system temporary
+directory must be trusted and have sufficient free space.
+
+```yaml
+- type: recovery_check
+  repository: local
+  archive_name: snapshot-2026
+  paths: [documents]
+  checks:
+    - {kind: path_type, path: documents, type: directory}
+    - {kind: file_size, path: documents/a, size: 12}
+    - {kind: file_bytes, path: documents/marker, bytes: "ready\n"}
+    - {kind: file_count, path: documents, count: 2}
+    - {kind: file_sha256, path: documents/a, sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+  sample: {live_root: ./live, limit: 100}
+```
+
+Path types are `file`, `directory`, `symlink`, `fifo`, `socket`,
+`block_device`, and `char_device`. Assertion paths are literal relative
+slash-separated paths; `.` means the extracted root. Extraction paths follow
+the same rules except `.` is not accepted. `bytes` is the literal UTF-8 bytes
+of the YAML string, including any newlines; it is redacted in the TUI.
+Sample limits range from 1 to 10000 and bound comparisons, not extraction or
+traversal. `live_root` resolves relative to the configuration directory (or
+uses local `~` expansion); sampling compares against current live files, not a
+snapshot. Differences or incomplete sampling stop later stages as warnings.
+Optional `lock_wait` has the same meaning as for other tasks.

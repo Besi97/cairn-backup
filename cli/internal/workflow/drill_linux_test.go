@@ -13,11 +13,57 @@ import (
 	"time"
 
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
+	"github.com/Besi97/cairn-backup/cli/internal/config"
 	"github.com/Besi97/cairn-backup/cli/internal/history"
 	"github.com/Besi97/cairn-backup/cli/internal/lifecycle"
 	"github.com/Besi97/cairn-backup/cli/internal/recovery/drill"
 	"github.com/Besi97/cairn-backup/cli/internal/recovery/selection"
 )
+
+func TestConfiguredDrillExecution(t *testing.T) {
+	runner, _ := drillFixture(t, "")
+	dir := t.TempDir()
+	text := `version: 1
+repositories:
+  remote: {location: "user@host:repo", passphrase: "secret", identity_file: ./key}
+workflows:
+  scheduled:
+    cron: "@daily"
+    stages:
+      - tasks:
+          - type: recovery_check
+            repository: remote
+            archive_prefix: secret
+            paths: [secret-path]
+            checks:
+              - {kind: file_bytes, path: secret-path, bytes: restored}
+              - {kind: file_size, path: secret-path, size: 8}
+`
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(filepath.Join(dir, "key"), []byte("test key"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(text), 0600); err != nil {
+		t.Fatal(err)
+	}
+	selected, err := config.Load(config.Options{Path: path, Explicit: true, Directory: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := Prepare(selected, "scheduled", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := plan.Stages[0][0].Drill
+	if opts == nil || opts.Selector.LatestPrefix != "secret" || opts.Repository.Access.IdentityFile != filepath.Join(dir, "key") || *opts.Repository.Access.Passphrase != "secret" || string(opts.Checks[0].Bytes) != "restored" {
+		t.Fatal("incorrect drill preparation")
+	}
+	var output bytes.Buffer
+	result, err := (Executor{Runner: runner, Stdout: &output, Stderr: &output}).Run(t.Context(), plan)
+	if err != nil || result.Outcome != borg.Success {
+		t.Fatalf("result %+v err %v output %s", result, err, output.String())
+	}
+}
 
 func drillFixture(t *testing.T, behavior string) (borg.Runner, drill.Options) {
 	t.Helper()
@@ -34,7 +80,8 @@ func drillFixture(t *testing.T, behavior string) (borg.Runner, drill.Options) {
 	manifest := fmt.Sprintf(`{"repository":{"id":"%s"},"archives":[{"barchive":"secret-archive","id":"%s"}]}`, strings.Repeat("b", 64), strings.Repeat("a", 64))
 	for name, content := range map[string][]byte{"tar": data.Bytes(), "manifest": []byte(manifest), "borg": []byte(`#!/bin/sh
 set -eu
-if [ "$1" = "--version" ]; then echo "borg 1.4.5"; exit; fi
+	if [ "$1" = "--version" ]; then echo "borg 1.4.5"; exit; fi
+if [ "$1" = "--rsh" ]; then shift 2; fi
 ` + behavior + `
 case "$1" in
  list) case " $* " in *" --json "*) cat "$DRILL_FIXTURE/manifest";; *) printf '%s\0%s\0' '-' '-rw-------';; esac;;
