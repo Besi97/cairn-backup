@@ -20,8 +20,26 @@ a symlink.
 Results contain only status and reason codes; callers can match them to inputs
 by position. No paths, contents or OS diagnostics are returned.
 
-For #127, the descriptor-relative lookup and regular-file open in
-`tree_linux.go` are the reuse boundary. Content reads reopen the pinned regular
-inode through trusted Linux `/proc/self/fd`; they never reopen a restored
-name. The helpers are not a snapshot or a guarantee that a live tree stays
-unchanged during comparison.
+## Sampled comparison
+
+`CompareSample(ctx, restored, live, limit)` compares regular restored paths
+against the same relative paths in an explicitly supplied live tree. Both
+roots must have trusted ancestors and cannot themselves be symlinks. Directory
+traversal does not follow symlinks; content reads reopen pinned regular inodes
+through trusted Linux `/proc/self/fd`. The restored tree must be stable; neither
+tree is a snapshot, so concurrent changes may affect the result.
+
+Selection takes the lowest SHA-256 hashes of relative path bytes (ties use
+path byte order), up to `limit` regular paths. Hard links count by name;
+symlinks and special files are excluded. `limit` must be between 1 and
+`MaxSampleFiles`. The method, eligible population, selected and unselected
+counts, completed comparisons, differences and omissions are returned without
+paths or content. An incomplete walk fails and its eligible count is partial.
+The limit bounds comparisons, not extraction, traversal, or bytes read.
+
+Different content returns `SampleDifferent`: it is a warning about live data,
+not evidence of archive corruption. Missing, non-regular or unreadable selected
+paths are omissions; any omission makes the result incomplete, even if other
+comparisons differ. An empty sample is also incomplete. Root, traversal and
+cancellation failures and other I/O failures return `SampleFailed`; failures
+during comparison count all remaining selected paths as omitted.
