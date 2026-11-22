@@ -38,11 +38,27 @@ observations are separate from these facts; inspection never recovers execution.
 The snapshot payload is capped at 512 KiB. Atomic replacement uses at most one
 512 KiB scratch payload, keeping Cairn-generated history file contents within
 **1 MiB total**, excluding filesystem metadata/block allocation. Ordinarily 100
-summaries use much less. Large workflows only increment fixed-size counters:
-no per-task or per-stage list grows with the workflow. Workflow names and run
+summaries use much less. Recovery evidence is also bounded as described below.
+Workflow names and run
 IDs exceeding 256 UTF-8 bytes are rejected for history rather than truncated.
 An oversized or malformed store is reported, not silently erased or repaired.
 The cap cannot constrain unrelated files or contents placed there externally.
+
+## Recovery evidence
+
+History can retain up to 16 recovery task records per run, identified by
+one-based stage and task numbers. Each has a versioned projection of the report's
+fixed step outcomes and aggregate sample statistics. Archive identifiers and
+names, paths, individual checks, raw diagnostics and credentials are excluded.
+Additional or invalid reports increment `recovery_omitted`. If the snapshot
+would exceed its cap, evidence is discarded oldest run first and omissions are
+counted; summaries remain. Evidence shares run retention and permissions.
+
+The internal `Summary` JSON fields provide structured access through `List` and
+`Inspect`. The recovery execution path does not yet emit reports to lifecycle,
+and CLI/TUI display and a machine-readable CLI interface remain follow-up work.
+Consumers emitting a `TaskFinished` event may set `Event.Recovery` to a report;
+invalid evidence is omitted without changing the task summary or outcome.
 
 ## CLI inspection
 

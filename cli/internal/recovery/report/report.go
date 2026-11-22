@@ -1,6 +1,5 @@
-// Package report defines display-only recovery evidence. It does not run checks
-// or persist reports. Callers must keep reports separate from run history and
-// Borg diagnostics; reports can contain sensitive archive names and paths.
+// Package report defines recovery evidence. Reports can contain sensitive
+// archive names and paths; only the restricted HistoryEvidence is safe for history.
 package report
 
 import (
@@ -84,6 +83,41 @@ type Evidence struct {
 	Sample         Sample   `json:"sample"`
 	Cleanup        Step     `json:"cleanup"`
 	Timing         Timing   `json:"timing"`
+}
+
+// HistoryEvidence deliberately excludes archive identity, paths, checks and timing.
+// It contains only bounded reason codes and aggregate sample statistics.
+type HistoryEvidence struct {
+	Version        int    `json:"version"`
+	Outcome        Step   `json:"outcome"`
+	Selection      Step   `json:"selection"`
+	IdentityBefore Step   `json:"identity_before"`
+	Extraction     Step   `json:"extraction"`
+	IdentityAfter  Step   `json:"identity_after"`
+	ChecksState    Step   `json:"checks_state"`
+	Sample         Sample `json:"sample"`
+	Cleanup        Step   `json:"cleanup"`
+}
+
+// ForHistory projects a report onto its non-identifying fields.
+func ForHistory(e Evidence) (HistoryEvidence, error) {
+	h := HistoryEvidence{Version, e.Outcome, e.Selection, e.IdentityBefore, e.Extraction,
+		e.IdentityAfter, e.ChecksState, e.Sample, e.Cleanup}
+	if !h.Valid() {
+		return HistoryEvidence{}, invalid
+	}
+	return h, nil
+}
+
+func (h HistoryEvidence) Valid() bool {
+	if h.Version != Version {
+		return false
+	}
+	_, err := prepare(Evidence{Outcome: h.Outcome, Selection: h.Selection,
+		IdentityBefore: h.IdentityBefore, Extraction: h.Extraction,
+		IdentityAfter: h.IdentityAfter, ChecksState: h.ChecksState,
+		Sample: h.Sample, Cleanup: h.Cleanup})
+	return err == nil
 }
 
 type document struct {
