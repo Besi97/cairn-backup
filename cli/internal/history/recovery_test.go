@@ -20,9 +20,9 @@ func recoveryReport() *report.Evidence {
 		Outcome: step, Selection: step, IdentityBefore: step, Extraction: step,
 		IdentityAfter: step, ChecksState: step, Cleanup: step,
 		Sample:  report.Sample{Status: "not_run"},
-		Archive: &report.Archive{Name: "secret-archive"},
-		Scope:   report.Scope{Paths: []string{"secret-path"}},
-		Checks:  []report.Check{{Path: "secret-check"}},
+		Archive: &report.Archive{Name: "archive"},
+		Scope:   report.Scope{Paths: []string{"path"}},
+		Checks:  []report.Check{{Path: "check-path", Kind: "path_type", Status: "passed"}},
 	}
 }
 
@@ -82,6 +82,11 @@ func TestRecoverySnapshotOverflowPreservesSummary(t *testing.T) {
 	var finished bool
 	for _, r := range runs {
 		omitted += r.RecoveryOmitted
+		for _, task := range r.Recovery {
+			if task.Evidence.DetailsOmitted {
+				omitted++
+			}
+		}
 		if r.RunID == "run-099" {
 			finished = !r.Incomplete && r.Outcome == lifecycle.Success
 		}
@@ -164,5 +169,39 @@ func TestRecoveryReadsExistingSnapshot(t *testing.T) {
 	runs, err := s.List()
 	if err != nil || len(runs) != 2 {
 		t.Fatalf("%+v %v", runs, err)
+	}
+}
+
+func TestRecoveryMalformedDetailsFailClosed(t *testing.T) {
+	s, dir := store(t)
+	e := event("run", 1, lifecycle.TaskFinished)
+	e.Stage, e.Task, e.Recovery = 1, 1, recoveryReport()
+	if err := s.Observe(e); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "runs.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var data snapshot
+	if err := json.Unmarshal(raw, &data); err != nil {
+		t.Fatal(err)
+	}
+	data.Runs[0].Recovery[0].Evidence.Details.Paths[0] = "unsafe\x1b"
+	raw, _ = json.Marshal(data)
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := openStore(filepath.Dir(filepath.Dir(dir)), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	if _, err := reader.List(); err != ErrUnavailable {
+		t.Fatalf("malformed details: %v", err)
+	}
+	if err := reader.Observe(e); err != ErrUnavailable {
+		t.Fatalf("read-only write: %v", err)
 	}
 }

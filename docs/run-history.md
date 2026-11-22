@@ -48,23 +48,28 @@ The cap cannot constrain unrelated files or contents placed there externally.
 
 History can retain up to 16 recovery task records per run, identified by
 one-based stage and task numbers. Each has a versioned projection of the report's
-fixed step outcomes and aggregate sample statistics. Archive identifiers and
-names, paths, individual checks, raw diagnostics and credentials are excluded.
-Additional or invalid reports increment `recovery_omitted`. If the snapshot
-would exceed its cap, evidence is discarded oldest run first and omissions are
-counted; summaries remain. Evidence shares run retention and permissions.
+fixed step outcomes, aggregate sample statistics, and optional identifying details:
+archive name and archive ID, scope paths and individual check outcomes. These
+names and paths may be sensitive. They are quoted byte literals for display only,
+never selectors. Repository IDs, expected contents and digests, raw diagnostics,
+repository locations and credentials are excluded.
 
-The internal `Summary` JSON fields provide structured access through `List` and
-`Inspect`. The recovery execution path does not yet emit reports to lifecycle,
-and CLI/TUI display and a machine-readable CLI interface remain follow-up work.
-Consumers emitting a `TaskFinished` event may set `Event.Recovery` to a report;
-invalid evidence is omitted without changing the task summary or outcome.
+At most 32 paths and 32 checks are retained per task, with each name or path
+limited to 256 input bytes. Counts report omitted items and a flag reports
+truncated text. Additional or invalid reports increment `recovery_omitted`.
+If the snapshot would exceed its cap, identifying details are discarded oldest
+run first with `details_omitted` set, then complete recovery records if necessary;
+run summaries remain. Evidence shares run retention and permissions.
+Workflow recovery execution emits reports with terminal task events; invalid
+evidence is omitted without changing the task summary or outcome. Configuration
+and schema exposure of recovery tasks remains separate work.
 
 ## CLI inspection
 
 ```sh
 cairn history
 cairn history --incomplete
+cairn history --json
 ```
 
 Show all retained runs, newest last-observation first, or only runs without a
@@ -80,7 +85,9 @@ manual/scheduled attribution, preview status, recorded timestamps and sequence,
 outcome/reason, incomplete/partial flags, and terminal task counts. Owner and
 lock observations are separate fields; raw owner identity and lock filenames are
 not printed. Configured workflow names remain attribution, not secret-safe labels.
-There is no machine-output contract or additional filter in this command.
+`--json` emits a version 1 object with `runs`, each containing a `summary` and
+momentary `owner` and `lock` observations. It combines with `--incomplete`.
+Recovery display literals must not be decoded and reused as restore selectors.
 
 Successful inspection exits `0`, even when records report warning, failure,
 interruption, or unknown outcomes. Storage/output failures exit `2`; invalid
@@ -99,7 +106,8 @@ keeps any previous snapshot with its original inspection time.
 
 Details show recorded timestamps, outcome, incomplete/partial flags, attribution,
 and aggregate terminal task counts, separately from momentary owner/lock evidence.
-Per-stage/task results and configuration contents are not retained. Configuration
+Recovery task evidence is shown when retained; other per-stage/task results and
+configuration contents are not retained. Configuration
 identity identifies a path, not its contents: differences from the TUI or agent's
 configuration snapshot cannot be determined. The tab reads local data only,
 without contacting Borg, resolving secrets, taking locks, or rewriting history.
@@ -133,7 +141,8 @@ printed by history reporting. Failure never cancels work, changes operation
 outcomes/exit codes, disables another observer, or stops agent dispatch.
 
 No Borg output, errors, command arguments, environment, credentials, repository
-locations, source/credential paths, or archive names/selectors are recorded.
+locations, or source/credential paths are recorded. Recovery archive names and
+scope/check paths are identifying display evidence and may be sensitive.
 Configured names are attribution, so do not use secrets as workflow names.
 Configuration identity is a domain-separated SHA-256 digest of the canonical
 configuration path, matching execution's symlink resolution. It is not a content

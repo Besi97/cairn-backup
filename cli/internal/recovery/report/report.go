@@ -1,5 +1,5 @@
 // Package report defines recovery evidence. Reports can contain sensitive
-// archive names and paths; only the restricted HistoryEvidence is safe for history.
+// archive names and paths; history retains a bounded display-only projection.
 package report
 
 import (
@@ -85,24 +85,62 @@ type Evidence struct {
 	Timing         Timing   `json:"timing"`
 }
 
-// HistoryEvidence deliberately excludes archive identity, paths, checks and timing.
-// It contains only bounded reason codes and aggregate sample statistics.
 type HistoryEvidence struct {
-	Version        int    `json:"version"`
-	Outcome        Step   `json:"outcome"`
-	Selection      Step   `json:"selection"`
-	IdentityBefore Step   `json:"identity_before"`
-	Extraction     Step   `json:"extraction"`
-	IdentityAfter  Step   `json:"identity_after"`
-	ChecksState    Step   `json:"checks_state"`
-	Sample         Sample `json:"sample"`
-	Cleanup        Step   `json:"cleanup"`
+	Version        int             `json:"version"`
+	Outcome        Step            `json:"outcome"`
+	Selection      Step            `json:"selection"`
+	IdentityBefore Step            `json:"identity_before"`
+	Extraction     Step            `json:"extraction"`
+	IdentityAfter  Step            `json:"identity_after"`
+	ChecksState    Step            `json:"checks_state"`
+	Sample         Sample          `json:"sample"`
+	Cleanup        Step            `json:"cleanup"`
+	Details        *HistoryDetails `json:"details,omitempty"`
+	DetailsOmitted bool            `json:"details_omitted,omitempty"`
 }
 
-// ForHistory projects a report onto its non-identifying fields.
+const historyItems = 32
+const historyText = 256
+
+type HistoryDetails struct {
+	ArchiveName   string   `json:"archive_name_display,omitempty"`
+	ArchiveID     string   `json:"archive_id,omitempty"`
+	WholeArchive  bool     `json:"whole_archive"`
+	Paths         []string `json:"paths_display,omitempty"`
+	Checks        []Check  `json:"checks,omitempty"`
+	PathsOmitted  int      `json:"paths_omitted,omitempty"`
+	ChecksOmitted int      `json:"checks_omitted,omitempty"`
+	Truncated     bool     `json:"truncated,omitempty"`
+}
+
+// ForHistory produces display-only values, never selectors or expected values.
 func ForHistory(e Evidence) (HistoryEvidence, error) {
-	h := HistoryEvidence{Version, e.Outcome, e.Selection, e.IdentityBefore, e.Extraction,
-		e.IdentityAfter, e.ChecksState, e.Sample, e.Cleanup}
+	if _, err := prepare(e); err != nil {
+		return HistoryEvidence{}, err
+	}
+	h := HistoryEvidence{Version: Version, Outcome: e.Outcome, Selection: e.Selection, IdentityBefore: e.IdentityBefore, Extraction: e.Extraction,
+		IdentityAfter: e.IdentityAfter, ChecksState: e.ChecksState, Sample: e.Sample, Cleanup: e.Cleanup}
+	d := &HistoryDetails{WholeArchive: e.Scope.WholeArchive}
+	text := func(s string) string {
+		if len(s) > historyText {
+			s = s[:historyText]
+			d.Truncated = true
+		}
+		return display(s)
+	}
+	if e.Archive != nil {
+		d.ArchiveName, d.ArchiveID = text(e.Archive.Name), e.Archive.ArchiveID
+	}
+	for _, p := range e.Scope.Paths[:min(len(e.Scope.Paths), historyItems)] {
+		d.Paths = append(d.Paths, text(p))
+	}
+	d.PathsOmitted = len(e.Scope.Paths) - len(d.Paths)
+	for _, c := range e.Checks[:min(len(e.Checks), historyItems)] {
+		c.Path = text(c.Path)
+		d.Checks = append(d.Checks, c)
+	}
+	d.ChecksOmitted = len(e.Checks) - len(d.Checks)
+	h.Details = d
 	if !h.Valid() {
 		return HistoryEvidence{}, invalid
 	}
@@ -117,7 +155,73 @@ func (h HistoryEvidence) Valid() bool {
 		IdentityBefore: h.IdentityBefore, Extraction: h.Extraction,
 		IdentityAfter: h.IdentityAfter, ChecksState: h.ChecksState,
 		Sample: h.Sample, Cleanup: h.Cleanup})
-	return err == nil
+	if err != nil || (h.Details != nil && h.DetailsOmitted) {
+		return false
+	}
+	d := h.Details
+	if d == nil {
+		return true
+	}
+	safe := func(s string) bool {
+		raw, err := strconv.Unquote(s)
+		return err == nil && len(raw) <= historyText && display(raw) == s
+	}
+	if (d.ArchiveName != "" && !safe(d.ArchiveName)) || !validID(d.ArchiveID) ||
+		len(d.Paths) > historyItems || len(d.Checks) > historyItems ||
+		d.PathsOmitted < 0 || d.PathsOmitted > maxItems || d.ChecksOmitted < 0 || d.ChecksOmitted > maxItems ||
+		len(d.Paths)+d.PathsOmitted > maxItems || len(d.Checks)+d.ChecksOmitted > maxItems {
+		return false
+	}
+	for _, p := range d.Paths {
+		if !safe(p) {
+			return false
+		}
+	}
+	for _, c := range d.Checks {
+		if !safe(c.Path) || !oneOf(c.Kind, "path_type", "file_size", "file_bytes", "file_count", "file_sha256") ||
+			!oneOf(c.Status, "passed", "mismatch", "evaluation_failed", "not_evaluated") ||
+			!oneOf(c.Reason, "", "missing_path", "wrong_type", "different_value", "invalid_check", "root_unavailable", "parent_not_directory", "filesystem_failure", "canceled") {
+			return false
+		}
+	}
+	return true
+}
+
+// HistoryText renders previously validated display literals without decoding them.
+func HistoryText(h HistoryEvidence) string {
+	if !h.Valid() {
+		return "invalid recovery evidence"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "outcome=%s reason=%s\n", h.Outcome.Status, h.Outcome.Reason)
+	for _, x := range []struct {
+		name string
+		step Step
+	}{
+		{"selection", h.Selection}, {"identity before", h.IdentityBefore}, {"extraction", h.Extraction},
+		{"identity after", h.IdentityAfter}, {"checks", h.ChecksState}, {"cleanup", h.Cleanup},
+	} {
+		fmt.Fprintf(&b, "%s=%s %s\n", x.name, x.step.Status, x.step.Reason)
+	}
+	fmt.Fprintf(&b, "sample=%s %s eligible=%d complete=%t selected=%d compared=%d different=%d omitted=%d\n",
+		h.Sample.Status, h.Sample.Reason, h.Sample.Eligible, h.Sample.EligibleComplete, h.Sample.Selected, h.Sample.Compared, h.Sample.Different, h.Sample.Omitted)
+	if h.DetailsOmitted {
+		b.WriteString("details omitted (snapshot limit)\n")
+	}
+	if d := h.Details; d != nil {
+		if d.ArchiveName != "" {
+			fmt.Fprintf(&b, "archive=%s id=%s\n", d.ArchiveName, d.ArchiveID)
+		}
+		fmt.Fprintf(&b, "whole archive=%t\n", d.WholeArchive)
+		for _, p := range d.Paths {
+			fmt.Fprintf(&b, "path: %s\n", p)
+		}
+		for _, c := range d.Checks {
+			fmt.Fprintf(&b, "check %s %s: %s %s\n", c.Kind, c.Path, c.Status, c.Reason)
+		}
+		fmt.Fprintf(&b, "paths omitted=%d checks omitted=%d text truncated=%t\n", d.PathsOmitted, d.ChecksOmitted, d.Truncated)
+	}
+	return b.String()
 }
 
 type document struct {
