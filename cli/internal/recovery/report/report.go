@@ -1,0 +1,214 @@
+// Package report defines display-only recovery evidence. It does not run checks
+// or persist reports. Callers must keep reports separate from run history and
+// Borg diagnostics; reports can contain sensitive archive names and paths.
+package report
+
+import (
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"strconv"
+	"strings"
+	"time"
+)
+
+const Version = 1
+const maxItems = 1000
+const maxSampleFiles = 10000
+const maxText = 4096
+
+type Status string
+
+const (
+	NotRun      Status = "not_run"
+	Passed      Status = "passed"
+	Failed      Status = "failed"
+	Interrupted Status = "interrupted"
+	Incomplete  Status = "incomplete"
+)
+
+// Step records an outcome and a fixed reason code, never an error message.
+type Step struct {
+	Status Status `json:"status"`
+	Reason string `json:"reason,omitempty"`
+}
+type Archive struct {
+	Name         string `json:"name_display"`
+	ArchiveID    string `json:"archive_id,omitempty"`
+	RepositoryID string `json:"repository_id,omitempty"`
+}
+type Scope struct {
+	WholeArchive bool     `json:"whole_archive"`
+	Paths        []string `json:"paths_display"`
+}
+type Check struct {
+	Kind   string `json:"kind"`
+	Path   string `json:"path_display"`
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// EligibleComplete is false when selection failed partway through traversal.
+type Sample struct {
+	Status           string `json:"status"`
+	Reason           string `json:"reason,omitempty"`
+	Method           string `json:"method,omitempty"`
+	EligibleComplete bool   `json:"eligible_complete"`
+	Eligible         int64  `json:"eligible"`
+	Selected         int    `json:"selected"`
+	Unselected       int64  `json:"unselected"`
+	Compared         int    `json:"compared"`
+	Different        int    `json:"different"`
+	Omitted          int    `json:"omitted"`
+}
+type Timing struct {
+	Started  *time.Time `json:"started,omitempty"`
+	Finished *time.Time `json:"finished,omitempty"`
+}
+
+// Evidence is an input value. Name and paths are byte strings, not JSON or
+// terminal text. Renderers quote their bytes for display; never use displayed
+// values as selectors. Do not put credentials, raw errors or diagnostics here.
+type Evidence struct {
+	Outcome        Step     `json:"outcome"`
+	Archive        *Archive `json:"archive,omitempty"`
+	Scope          Scope    `json:"scope"`
+	Selection      Step     `json:"selection"`
+	IdentityBefore Step     `json:"identity_before"`
+	Extraction     Step     `json:"extraction"`
+	IdentityAfter  Step     `json:"identity_after"`
+	ChecksState    Step     `json:"checks_state"`
+	Checks         []Check  `json:"checks"`
+	Sample         Sample   `json:"sample"`
+	Cleanup        Step     `json:"cleanup"`
+	Timing         Timing   `json:"timing"`
+}
+
+type document struct {
+	Version  int      `json:"version"`
+	Evidence Evidence `json:"evidence"`
+}
+
+var invalid = errors.New("invalid recovery evidence")
+
+func oneOf(s string, values ...string) bool {
+	for _, v := range values {
+		if s == v {
+			return true
+		}
+	}
+	return false
+}
+func validStep(s Step) bool {
+	return oneOf(string(s.Status), "not_run", "passed", "failed", "interrupted", "incomplete") &&
+		oneOf(s.Reason, "", "canceled", "selection_failed", "identity_changed", "identity_check_failed", "extraction_failed", "extraction_warning", "checks_failed", "sample_failed", "cleanup_failed", "shutdown_unconfirmed")
+}
+func display(s string) string { return strconv.QuoteToASCII(s) }
+func validID(s string) bool {
+	if s == "" {
+		return true
+	}
+	if len(s) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(s)
+	return err == nil
+}
+
+// prepare validates bounds and makes an independent display-safe copy.
+func prepare(e Evidence) (document, error) {
+	if !validStep(e.Outcome) || !validStep(e.Selection) || !validStep(e.IdentityBefore) || !validStep(e.Extraction) || !validStep(e.IdentityAfter) || !validStep(e.ChecksState) || !validStep(e.Cleanup) || len(e.Scope.Paths) > maxItems || len(e.Checks) > maxItems {
+		return document{}, invalid
+	}
+	if e.Archive != nil {
+		a := *e.Archive
+		if len(a.Name) > maxText || !validID(a.ArchiveID) || !validID(a.RepositoryID) {
+			return document{}, invalid
+		}
+		a.Name = display(a.Name)
+		e.Archive = &a
+	}
+	e.Scope.Paths = append([]string{}, e.Scope.Paths...)
+	for i, p := range e.Scope.Paths {
+		if len(p) > maxText {
+			return document{}, invalid
+		}
+		e.Scope.Paths[i] = display(p)
+	}
+	e.Checks = append([]Check{}, e.Checks...)
+	for i := range e.Checks {
+		c := &e.Checks[i]
+		if len(c.Path) > maxText || !oneOf(c.Kind, "path_type", "file_size", "file_bytes", "file_count", "file_sha256") || !oneOf(c.Status, "passed", "mismatch", "evaluation_failed", "not_evaluated") || !oneOf(c.Reason, "", "missing_path", "wrong_type", "different_value", "invalid_check", "root_unavailable", "parent_not_directory", "filesystem_failure", "canceled") {
+			return document{}, invalid
+		}
+		c.Path = display(c.Path)
+	}
+	s := e.Sample
+	if !oneOf(s.Status, "not_run", "passed", "different", "incomplete", "failed") || !oneOf(s.Method, "", "sha256-relative-path-lowest") || !oneOf(s.Reason, "", "empty", "omitted", "invalid_limit", "root_unavailable", "filesystem_failure", "canceled") || s.Eligible < 0 || s.Selected < 0 || s.Unselected < 0 || s.Compared < 0 || s.Different < 0 || s.Omitted < 0 || s.Selected > maxSampleFiles || s.Compared > s.Selected || s.Different > s.Compared || s.Omitted > s.Selected-s.Compared {
+		return document{}, invalid
+	}
+	if e.Timing.Started != nil && e.Timing.Finished != nil && e.Timing.Finished.Before(*e.Timing.Started) {
+		return document{}, invalid
+	}
+	return document{Version, e}, nil
+}
+
+// WriteJSON writes versioned evidence. Display strings are quoted byte literals.
+func WriteJSON(w io.Writer, e Evidence) error {
+	d, err := prepare(e)
+	if err != nil {
+		return err
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(d)
+}
+
+// WriteText writes human-readable evidence without terminal control sequences.
+func WriteText(w io.Writer, e Evidence) error {
+	d, err := prepare(e)
+	if err != nil {
+		return err
+	}
+	e = d.Evidence
+	var b strings.Builder
+	fmt.Fprintf(&b, "Recovery evidence v%d\nOutcome: %s %s\n", Version, e.Outcome.Status, e.Outcome.Reason)
+	if e.Archive == nil {
+		b.WriteString("Archive: not selected\n")
+	} else {
+		fmt.Fprintf(&b, "Archive: %s\nArchive ID: %s\nRepository ID: %s\n", e.Archive.Name, e.Archive.ArchiveID, e.Archive.RepositoryID)
+	}
+	fmt.Fprintf(&b, "Scope: whole archive=%t\n", e.Scope.WholeArchive)
+	for _, p := range e.Scope.Paths {
+		fmt.Fprintf(&b, "  path: %s\n", p)
+	}
+	for _, x := range []struct {
+		name string
+		step Step
+	}{{"Selection", e.Selection}, {"Identity before", e.IdentityBefore}, {"Extraction", e.Extraction}, {"Identity after", e.IdentityAfter}, {"Checks", e.ChecksState}, {"Cleanup", e.Cleanup}} {
+		fmt.Fprintf(&b, "%s: %s %s\n", x.name, x.step.Status, x.step.Reason)
+	}
+	b.WriteString("Identity checks detect observed changes, not replacement and reversion or the identity seen by extraction.\n")
+	if len(e.Checks) == 0 {
+		b.WriteString("Checks: none recorded\n")
+	}
+	for _, c := range e.Checks {
+		fmt.Fprintf(&b, "Check %s %s: %s %s\n", c.Kind, c.Path, c.Status, c.Reason)
+	}
+	s := e.Sample
+	fmt.Fprintf(&b, "Sample: %s %s; method=%s; eligible=%d (complete=%t), selected=%d, unselected=%d, compared=%d, different=%d, omitted=%d\n", s.Status, s.Reason, s.Method, s.Eligible, s.EligibleComplete, s.Selected, s.Unselected, s.Compared, s.Different, s.Omitted)
+	if e.Timing.Started != nil {
+		fmt.Fprintf(&b, "Started: %s\n", e.Timing.Started.UTC().Format(time.RFC3339Nano))
+	} else {
+		b.WriteString("Started: not recorded\n")
+	}
+	if e.Timing.Finished != nil {
+		fmt.Fprintf(&b, "Finished: %s\n", e.Timing.Finished.UTC().Format(time.RFC3339Nano))
+	} else {
+		b.WriteString("Finished: not recorded\n")
+	}
+	_, err = io.WriteString(w, b.String())
+	return err
+}
