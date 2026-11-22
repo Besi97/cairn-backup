@@ -206,7 +206,8 @@ alongside labelled Borg diagnostics; task outcomes remain on stdout. Warnings
 and failures stop later stages of that run but do not terminate the agent.
 Output failures stop dispatch, cancel active work, and exit `2`. SIGINT/SIGTERM
 stop dispatching and wait for active-work cancellation cleanup before returning
-`130`/`143` and releasing the agent lock. There is no persistent run history.
+`130`/`143` and releasing the agent lock. See [local run history](run-history.md)
+for retained outcomes and recovery evidence.
 
 `cron` has five whitespace-separated fields:
 

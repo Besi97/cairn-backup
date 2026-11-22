@@ -301,6 +301,11 @@ func (s *Store) Observe(event lifecycle.Event) error {
 	if !validEvent(event) {
 		return ErrUnavailable
 	}
+	var evidence report.HistoryEvidence
+	var evidenceErr error
+	if event.Recovery != nil {
+		evidence, evidenceErr = report.ForHistory(*event.Recovery)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.readOnly || s.closed {
@@ -363,8 +368,7 @@ func (s *Store) Observe(event lifecycle.Event) error {
 		}
 	}
 	if event.Recovery != nil {
-		evidence, err := report.ForHistory(*event.Recovery)
-		if err != nil || event.Kind != lifecycle.TaskFinished || event.Stage <= 0 || event.Task <= 0 || len(run.Recovery) >= MaxRecoveryTasks {
+		if evidenceErr != nil || event.Kind != lifecycle.TaskFinished || event.Stage <= 0 || event.Task <= 0 || len(run.Recovery) >= MaxRecoveryTasks {
 			omitRecovery(run)
 		} else {
 			run.Recovery = append(run.Recovery, RecoveryTask{event.Stage, event.Task, evidence})
@@ -375,7 +379,28 @@ func (s *Store) Observe(event lifecycle.Event) error {
 		data.Runs = data.Runs[:MaxRuns]
 	}
 	raw, err := json.Marshal(data)
-	// Preserve summaries when accumulated evidence would exceed the snapshot cap.
+	// Discard identifying details before recovery records or run summaries.
+	need := len(raw) - MaxBytes/2
+	detailsDropped := false
+	for i := len(data.Runs) - 1; i >= 0 && err == nil && need > 0; i-- {
+		for j := len(data.Runs[i].Recovery) - 1; j >= 0 && need > 0; j-- {
+			e := &data.Runs[i].Recovery[j].Evidence
+			if e.Details == nil {
+				continue
+			}
+			before, marshalErr := json.Marshal(e)
+			e.Details, e.DetailsOmitted = nil, true
+			detailsDropped = true
+			after, afterErr := json.Marshal(e)
+			if marshalErr != nil || afterErr != nil {
+				return ErrUnavailable
+			}
+			need -= len(before) - len(after)
+		}
+	}
+	if detailsDropped {
+		raw, err = json.Marshal(data)
+	}
 	for err == nil && len(raw) > MaxBytes/2 {
 		removed := false
 		for i := len(data.Runs) - 1; i >= 0; i-- {

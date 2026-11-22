@@ -1,5 +1,8 @@
 # Fixed recovery assertions
 
+The internal recovery drill is wired into the workflow executor and evaluates
+these assertions. Configuration and schema exposure remain separate work.
+
 `Evaluate(ctx, root, checks)` runs checks in input order against a stable,
 extracted Linux tree. Paths are literal, relative, slash-separated names with
 no empty, `.` or `..` components; `.` names the root. The caller owns the

@@ -59,6 +59,36 @@ func TestRender(t *testing.T) {
 		t.Fatal("mutated input")
 	}
 }
+
+func TestHistoryDetailsBoundedAndSafe(t *testing.T) {
+	e := base()
+	e.Archive = &Archive{Name: "a\x1b\n" + strings.Repeat("x", 300), ArchiveID: strings.Repeat("a", 64), RepositoryID: strings.Repeat("b", 64)}
+	for i := 0; i < 40; i++ {
+		e.Scope.Paths = append(e.Scope.Paths, "p\xff\n")
+		e.Checks = append(e.Checks, Check{Kind: "file_bytes", Path: "c\x1b", Status: "mismatch", Reason: "different_value"})
+	}
+	h, err := ForHistory(e)
+	if err != nil || !h.Valid() || !h.Details.Truncated || h.Details.PathsOmitted != 8 || h.Details.ChecksOmitted != 8 {
+		t.Fatalf("%+v %v", h, err)
+	}
+	raw, err := json.Marshal(h)
+	if err != nil || bytes.Contains(raw, []byte(strings.Repeat("b", 64))) || strings.Contains(HistoryText(h), "\x1b") {
+		t.Fatalf("unsafe projection %s %v", raw, err)
+	}
+	var copy HistoryEvidence
+	if json.Unmarshal(raw, &copy) != nil || !copy.Valid() || copy.Details.Paths[0] != `"p\xff\n"` {
+		t.Fatalf("round trip %+v", copy)
+	}
+	copy.Details.Paths[0] = "raw\x1b"
+	if copy.Valid() {
+		t.Fatal("accepted unsafe display literal")
+	}
+	copy = h
+	copy.Details = &HistoryDetails{PathsOmitted: -1}
+	if copy.Valid() {
+		t.Fatal("accepted negative omissions")
+	}
+}
 func TestOutcomes(t *testing.T) {
 	for _, status := range []Status{NotRun, Passed, Failed, Interrupted, Incomplete} {
 		e := base()
