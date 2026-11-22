@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // Config contains a validated version 1 configuration and its selected location.

@@ -12,7 +12,7 @@ import (
 	published "github.com/Besi97/cairn-backup/cli/schema"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/santhosh-tekuri/jsonschema/v6/kind"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 var compiledSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {
