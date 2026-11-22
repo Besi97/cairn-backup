@@ -48,7 +48,6 @@ if [ "$1" = "--version" ]; then echo "borg 1.4.5"; exit; fi
 printf '%s\n' "$1" >> "$DRILL_FIXTURE/calls"
 `+behavior+`
 case "$1" in
-  check) : ;;
   list)
     case " $* " in
       *" --json "*) cat "$DRILL_FIXTURE/manifest";;
@@ -83,14 +82,14 @@ func TestRunSuccessAndSampleDifference(t *testing.T) {
 	wait := 1
 	opts.LockWait = &wait
 	result, err := Run(t.Context(), runner, opts, nil)
-	if err != nil || !result.Warning || result.BorgCheck.Status != report.Passed || result.Evidence.Outcome.Status != report.Incomplete ||
+	if err != nil || !result.Warning || result.Evidence.Outcome.Status != report.Incomplete ||
 		result.Evidence.Sample.Status != "different" || result.Evidence.Cleanup.Status != report.Passed ||
 		result.Evidence.Checks[0].Status != "passed" || result.Evidence.IdentityAfter.Status != report.Passed {
 		t.Fatalf("result %+v error %v", result, err)
 	}
 	assertEvidence(t, result)
 	calls, _ := os.ReadFile(filepath.Join(dir, "calls"))
-	if string(calls) != "check\nlist\nlist\nlist\nexport-tar\nextract\nlist\n" {
+	if string(calls) != "list\nlist\nlist\nexport-tar\nextract\nlist\n" {
 		t.Fatalf("calls %q", calls)
 	}
 	entries, _ := os.ReadDir(temp)
@@ -106,9 +105,9 @@ func TestRunFailures(t *testing.T) {
 		want           report.Status
 		step           string
 	}{
-		{"borg warning", `if [ "$1" = check ]; then exit 1; fi`, nil, report.Failed, "borg"},
+		{"selection warning", `if [ "$1" = list ]; then cat "$DRILL_FIXTURE/manifest"; exit 1; fi`, nil, report.Failed, "selection"},
 		{"missing identity", `if [ "$1" = list ]; then printf '{"repository":{},"archives":[]}'; exit; fi`, nil, report.Failed, "selection"},
-		{"before changed", `if [ "$1" = check ]; then :; elif [ "$1" = list ] && [ -f "$DRILL_FIXTURE/seen" ]; then sed 's/aaaaaaaa/bbbbbbbb/' "$DRILL_FIXTURE/manifest"; exit; elif [ "$1" = list ]; then touch "$DRILL_FIXTURE/seen"; fi`, nil, report.Failed, "before"},
+		{"before changed", `if [ "$1" = list ] && [ -f "$DRILL_FIXTURE/seen" ]; then sed 's/aaaaaaaa/bbbbbbbb/' "$DRILL_FIXTURE/manifest"; exit; elif [ "$1" = list ]; then touch "$DRILL_FIXTURE/seen"; fi`, nil, report.Failed, "before"},
 		{"after missing", `if [ "$1" = extract ]; then printf restored > file; printf '{"repository":{"id":"%064d"},"archives":[]}' 0 > "$DRILL_FIXTURE/manifest"; exit; fi`, nil, report.Failed, "after"},
 		{"extraction warning", `if [ "$1" = extract ]; then exit 1; fi`, nil, report.Failed, "extraction"},
 		{"assertion", "", func(o *Options) { o.Checks[0].Bytes = []byte("wrong") }, report.Failed, "checks"},
@@ -126,8 +125,6 @@ func TestRunFailures(t *testing.T) {
 			}
 			var got report.Status
 			switch tc.step {
-			case "borg":
-				got = result.BorgCheck.Status
 			case "selection":
 				got = result.Evidence.Selection.Status
 			case "before":

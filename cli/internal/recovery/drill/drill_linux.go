@@ -32,21 +32,17 @@ type Options struct {
 	Sample       *SampleOptions
 }
 
-// Result keeps the integrity check separate because report.Evidence has no field
-// for it. Warning indicates differences or incomplete sampling, not success.
+// Warning indicates differences or incomplete sampling, not success.
 type Result struct {
-	BorgCheck report.Step
-	Evidence  report.Evidence
-	Warning   bool
+	Evidence report.Evidence
+	Warning  bool
 }
 
-// Run performs a whole-repository Borg metadata check without --verify-data,
-// then selects and extracts one archive. The caller owns repository-level
+// Run selects and extracts one archive. The caller owns repository-level
 // coordination and must protect diagnostics and full evidence as sensitive.
 func Run(ctx context.Context, runner borg.Runner, o Options, diagnostics io.Writer) (out Result, err error) {
 	start := time.Now()
 	notRun := report.Step{Status: report.NotRun}
-	out.BorgCheck = notRun
 	out.Evidence = report.Evidence{
 		Outcome: notRun, Selection: notRun, IdentityBefore: notRun,
 		Extraction: notRun, IdentityAfter: notRun, ChecksState: notRun,
@@ -91,19 +87,6 @@ func Run(ctx context.Context, runner borg.Runner, o Options, diagnostics io.Writ
 	if !filepath.IsAbs(o.Dir) || o.Repository.Location == "" || strings.HasPrefix(o.Repository.Location, ":") || strings.ContainsAny(o.Repository.Location, "{}\x00") {
 		return out, errors.New("recovery requires a prepared literal repository and absolute working directory")
 	}
-	lockArgs, lockErr := borg.LockWaitArgs(o.LockWait)
-	if lockErr != nil {
-		return out, lockErr
-	}
-	args := append([]string{"check"}, lockArgs...)
-	args = append(args, "--", o.Repository.Location)
-	borgResult, checkErr := runner.Run(ctx, borg.Request{Args: args, Dir: o.Dir, Access: o.Repository.Access, Diagnostics: diagnostics})
-	if checkErr != nil || borgResult.Outcome != borg.Success {
-		out.BorgCheck = failed(ctx, "checks_failed")
-		e.Outcome = out.BorgCheck
-		return out, errors.Join(errors.New("Borg repository check did not succeed"), checkErr)
-	}
-	out.BorgCheck = report.Step{Status: report.Passed}
 	opts := selection.Options{Repository: o.Repository, Dir: o.Dir, LockWait: o.LockWait}
 	candidate, _, selectErr := selection.Resolve(ctx, runner, opts, o.Selector, diagnostics)
 	if selectErr != nil {

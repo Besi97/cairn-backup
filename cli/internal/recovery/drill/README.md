@@ -4,12 +4,9 @@
 literal archive selector, extraction scope, fixed assertions, and an optional
 bounded live-tree sample. It returns `Result` and an error; consumers must
 consider both the error and `Warning`, not just the absence of an error.
-`Result.BorgCheck` is separate from `Evidence` because the current evidence
-format has no integrity-check step. Any future report delivery must include
-that step; an evidence document alone does not record it.
 
-The integrity check covers repository and archive metadata, not `--verify-data`.
-An unsuccessful check, failed identity check, extraction warning, assertion
+The drill does not run a whole-repository Borg integrity check. A failed
+identity check, extraction warning, assertion
 mismatch, sample error or cleanup failure fails the attempt. Different sampled
 files and an empty sample produce incomplete warning evidence; omitted sample
 files are failures. Sampling compares a bounded subset, not a snapshot.
@@ -24,7 +21,7 @@ spanning all operations would be needed for stronger guarantees.
 The future workflow integration must prepare access, hold its existing
 repository coordination lock for the entire call, supply validated options,
 handle cancellation and the result/error/warning, and deliver appropriately
-protected reports including the separate Borg check. Configuration, schema,
+protected reports. Configuration, schema,
 scheduling, CLI, TUI, history, and report delivery are not integrated here.
 Diagnostics and full evidence can contain sensitive information; do not put
 them in history. The executor is Linux-only, like the assertion implementation.

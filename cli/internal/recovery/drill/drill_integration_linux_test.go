@@ -42,7 +42,7 @@ func TestRealBorgDrill(t *testing.T) {
 		Checks: []assertions.Check{{Kind: assertions.FileBytes, Path: "file", Bytes: []byte("contents")}},
 		Sample: &SampleOptions{LiveRoot: base, Limit: 1},
 	}, &diagnostics)
-	if err != nil || result.Warning || result.BorgCheck.Status != report.Passed || result.Evidence.Outcome.Status != report.Passed {
+	if err != nil || result.Warning || result.Evidence.Outcome.Status != report.Passed {
 		t.Fatalf("result %+v error %v: %s", result, err, diagnostics.String())
 	}
 	assertEvidence(t, result)
