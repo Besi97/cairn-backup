@@ -6,6 +6,7 @@ import (
 
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
 	"github.com/Besi97/cairn-backup/cli/internal/config"
+	"github.com/Besi97/cairn-backup/cli/internal/recovery/report"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -212,12 +213,18 @@ func (m Model) runDetail() string {
 			field("Last event", recordedTime(&s.LastObserved))),
 		section("Recorded terminal task counts", fmt.Sprintf("Success: %d · warning: %d · failure: %d\nInterrupted: %d · skipped: %d",
 			s.Tasks.Success, s.Tasks.Warning, s.Tasks.Failure, s.Tasks.Interrupted, s.Tasks.Skipped)+
-			"\n\n"+mutedStyle.Render("Per-stage/task details are not retained;\npartial counts may be incomplete.")),
+			"\n\n"+mutedStyle.Render("Partial counts may be incomplete.")),
 		section("Momentary evidence", field("Owner", unknown(string(run.Owner)))+"\n"+field("Lock", unknown(string(run.Lock)))+
 			"\n\n"+mutedStyle.Render("Owner present is not Borg liveness;\ngone does not mean Borg exited.\nLock held may belong to another run;\nunknown does not mean free.\nIncomplete means no terminal event, not active.")),
 		section("Identity", field("Run", config.DisplayText(s.RunID))+"\n"+field("Last sequence", fmt.Sprint(s.Sequence))+"\n"+
 			field("Configuration identity", unknown(s.ConfigID))+"\n\n"+
 			mutedStyle.Render("Path identity only, not a content hash.\nConfiguration contents are not retained;\ndifferences from TUI/agent snapshots are unknown.")),
+	}
+	for _, r := range s.Recovery {
+		groups = append(groups, section(fmt.Sprintf("Recovery %d.%d", r.Stage, r.Task), report.HistoryText(r.Evidence)))
+	}
+	if s.RecoveryOmitted > 0 {
+		groups = append(groups, section("Recovery", fmt.Sprintf("Records omitted: %d", s.RecoveryOmitted)))
 	}
 	return strings.Join(groups, "\n\n")
 }

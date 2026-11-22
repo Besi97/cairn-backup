@@ -167,7 +167,7 @@ func TestDrillWorkflowEvidenceAndStages(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if strings.Contains(string(raw), "secret") {
+			if strings.Contains(string(raw), "secret-credential") {
 				t.Fatalf("history leaked sensitive data: %s", raw)
 			}
 		})

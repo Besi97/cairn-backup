@@ -3,7 +3,9 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/Besi97/cairn-backup/cli/internal/history"
 	"github.com/Besi97/cairn-backup/cli/internal/lifecycle"
+	"github.com/Besi97/cairn-backup/cli/internal/recovery/report"
 	"github.com/Besi97/cairn-backup/cli/internal/runlock"
 )
 
@@ -28,6 +31,7 @@ func TestHistoryCommandEmptyAndArguments(t *testing.T) {
 	}{
 		{[]string{"history"}, 0, "No recorded runs.\n"},
 		{[]string{"history", "--incomplete"}, 0, "No incomplete recorded runs.\n"},
+		{[]string{"history", "--json"}, 0, `"version": 1`},
 		{[]string{"history", "--help"}, 0, "Incomplete means"},
 		{[]string{"history", "unexpected"}, 3, ""},
 		{[]string{"history", "--incomplete=invalid"}, 3, ""},
@@ -49,6 +53,35 @@ func TestHistoryCommandEmptyAndArguments(t *testing.T) {
 	}
 	if _, err := os.Stat(os.Getenv("XDG_RUNTIME_DIR")); !os.IsNotExist(err) {
 		t.Fatalf("inspection created runtime state: %v", err)
+	}
+}
+
+func TestHistoryRecoveryOutput(t *testing.T) {
+	n := report.Step{Status: report.NotRun}
+	e := report.Evidence{Outcome: n, Selection: n, IdentityBefore: n, Extraction: n, IdentityAfter: n, ChecksState: n, Cleanup: n, Sample: report.Sample{Status: "not_run"},
+		Archive: &report.Archive{Name: "archive\x1b\n"}, Scope: report.Scope{Paths: []string{"path\n"}},
+		Checks: []report.Check{{Kind: "file_bytes", Path: "check\x1b", Status: "mismatch", Reason: "different_value"}}}
+	h, err := report.ForHistory(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs := []history.Observation{{Summary: history.Summary{Incomplete: true, Execution: &runlock.Evidence{}, Recovery: []history.RecoveryTask{{Stage: 1, Task: 2, Evidence: h}}}}}
+	for _, write := range []func(io.Writer, []history.Observation, bool) error{writeHistory, writeHistoryJSON} {
+		var b bytes.Buffer
+		if err := write(&b, runs, true); err != nil || bytes.Contains(b.Bytes(), []byte{27}) || !strings.Contains(b.String(), "different_value") {
+			t.Fatalf("output %q: %v", b.String(), err)
+		}
+	}
+	var b bytes.Buffer
+	if err := writeHistoryJSON(&b, runs, true); err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Version int               `json:"version"`
+		Runs    []json.RawMessage `json:"runs"`
+	}
+	if json.Unmarshal(b.Bytes(), &doc) != nil || doc.Version != 1 || len(doc.Runs) != 1 || strings.Contains(b.String(), `"execution"`) {
+		t.Fatalf("JSON %s", &b)
 	}
 }
 

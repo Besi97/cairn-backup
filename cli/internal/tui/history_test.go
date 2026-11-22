@@ -16,9 +16,26 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/Besi97/cairn-backup/cli/internal/history"
 	"github.com/Besi97/cairn-backup/cli/internal/lifecycle"
+	"github.com/Besi97/cairn-backup/cli/internal/recovery/report"
 	"github.com/Besi97/cairn-backup/cli/internal/runlock"
 	"github.com/charmbracelet/x/ansi"
 )
+
+func TestHistoryRecoveryDetailsEscape(t *testing.T) {
+	n := report.Step{Status: report.NotRun}
+	e := report.Evidence{Outcome: n, Selection: n, IdentityBefore: n, Extraction: n, IdentityAfter: n, ChecksState: n, Cleanup: n,
+		Sample: report.Sample{Status: "not_run"}, Archive: &report.Archive{Name: "archive\x1b"}, Checks: []report.Check{{Kind: "path_type", Path: "file\n", Status: "passed"}}}
+	h, err := report.ForHistory(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := historyModel(t)
+	m.history.runs = []history.Observation{{Summary: history.Summary{Recovery: []history.RecoveryTask{{Stage: 1, Task: 2, Evidence: h}}}}}
+	text := ansi.Strip(m.runDetail())
+	if !strings.Contains(text, `archive\x1b`) || !strings.Contains(text, `file\n`) || strings.ContainsRune(text, '\x1b') {
+		t.Fatalf("unsafe details: %q", text)
+	}
+}
 
 func historyModel(t *testing.T) Model {
 	t.Helper()
@@ -241,7 +258,7 @@ func TestHistorySummaryFieldsAndEscaping(t *testing.T) {
 		contains(t, m, "Recorded outcome: "+want, "Reason: prior_stage_warning", "Partial: true",
 			"Success: 10 · warning: 2 · failure: 3", "Interrupted: 4 · skipped: 5",
 			"Owner: gone", "Lock: unknown", "gone does not mean Borg exited", "not a content hash",
-			"Per-stage/task details are not retained", "Source: scheduled", "Preview: true", "Last sequence: 500")
+			"Partial counts may be incomplete", "Source: scheduled", "Preview: true", "Last sequence: 500")
 		if strings.ContainsAny(ansi.Strip(m.body.GetContent()), "\x1b\a") {
 			t.Fatal("terminal controls were not escaped")
 		}
