@@ -18,10 +18,11 @@ identity checks cannot detect replace-and-revert or prove what the separate
 preflight and extraction commands saw. A trusted immutable snapshot or a lock
 spanning all operations would be needed for stronger guarantees.
 
-The future workflow integration must prepare access, hold its existing
-repository coordination lock for the entire call, supply validated options,
-handle cancellation and the result/error/warning, and deliver appropriately
-protected reports. Configuration, schema,
-scheduling, CLI, TUI, history, and report delivery are not integrated here.
+Workflow integration supplies prepared options and holds a workflow lock, not
+a repository-wide coordination lock. Borg locks individual operations; other
+workflows can access the same repository between them. Identity checks do not
+exclude concurrent workflows. Configuration, schema, and CLI exposure are not
+integrated here.
 Diagnostics and full evidence can contain sensitive information; do not put
-them in history. The executor is Linux-only, like the assertion implementation.
+them in history; history stores a restricted projection. The executor is
+Linux-only, like the assertion implementation.

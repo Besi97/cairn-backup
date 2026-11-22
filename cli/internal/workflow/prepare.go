@@ -12,6 +12,7 @@ import (
 	"github.com/Besi97/cairn-backup/cli/internal/compact"
 	"github.com/Besi97/cairn-backup/cli/internal/config"
 	"github.com/Besi97/cairn-backup/cli/internal/prune"
+	"github.com/Besi97/cairn-backup/cli/internal/recovery/drill"
 )
 
 // Plan contains prepared operations, not open files or running subprocesses.
@@ -26,6 +27,7 @@ type Task struct {
 	Repository string
 	Scope      string
 	Request    borg.Request
+	Drill      *drill.Options
 }
 
 // Prepare adapts a fully loaded configuration to the same primitives used by

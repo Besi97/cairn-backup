@@ -11,6 +11,8 @@ import (
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
 	"github.com/Besi97/cairn-backup/cli/internal/display"
 	"github.com/Besi97/cairn-backup/cli/internal/lifecycle"
+	"github.com/Besi97/cairn-backup/cli/internal/recovery/drill"
+	"github.com/Besi97/cairn-backup/cli/internal/recovery/report"
 	"github.com/Besi97/cairn-backup/cli/internal/runlock"
 )
 
@@ -19,8 +21,9 @@ type OperationRunner interface {
 }
 
 type TaskResult struct {
-	Result borg.Result
-	Err    error
+	Result   borg.Result
+	Err      error
+	Recovery *report.Evidence
 }
 
 // Stages includes started stages in configuration order; Tasks also counts skips.
@@ -157,6 +160,7 @@ func (e Executor) run(ctx context.Context, plan Plan, events *lifecycle.Run, pre
 				id := display.TaskID{Run: presentation.runID, Stage: i + 1, Task: j + 1}
 				results[j] = runTask(ctx, runner, output, id, attribution, task)
 				event.Kind, event.Outcome = lifecycle.TaskFinished, lifecycle.FromBorg(results[j].Result.Outcome)
+				event.Recovery = results[j].Recovery
 				if results[j].Err != nil && event.Outcome != lifecycle.Interrupted {
 					event.Outcome = lifecycle.Failure
 				}
@@ -238,11 +242,43 @@ func runTask(ctx context.Context, runner OperationRunner, output *Output, id dis
 		failed.Err = err
 		return failed
 	}
-	request := task.Request
 	diagnostics := display.NewLines(output.Writer(false, display.Label("borg", attribution)))
-	request.Diagnostics = diagnostics
-	request.Progress = func(progress borg.Progress) error { return output.Progress(id, attribution, progress) }
-	result, err := runner.Run(ctx, request)
+	var result borg.Result
+	var err error
+	var recovery *report.Evidence
+	if task.Drill != nil {
+		borgRunner, ok := runner.(borg.Runner)
+		if !ok {
+			result = borg.Result{Outcome: borg.Failure, ExitCode: -1}
+			err = errors.New("recovery drills require a Borg runner")
+		} else {
+			drilled, drillErr := drill.Run(ctx, borgRunner, *task.Drill, diagnostics)
+			recovery = &drilled.Evidence
+			result = borg.Result{Outcome: borg.Success, ExitCode: -1}
+			switch {
+			case ctx.Err() != nil:
+				result.Outcome = borg.Interrupted
+				err = ctx.Err()
+			case drillErr != nil:
+				result.Outcome = borg.Failure
+				err = errors.New("recovery drill failed; inspect diagnostics and evidence")
+			case drilled.Warning:
+				result.Outcome = borg.Warning
+			}
+			if errors.Is(drillErr, borg.ErrProcessGroupNotStopped) {
+				err = errors.Join(err, borg.ErrProcessGroupNotStopped)
+			}
+			err = errors.Join(err, report.WriteText(output.Writer(false, label), drilled.Evidence))
+			if err != nil && result.Outcome != borg.Interrupted {
+				result.Outcome = borg.Failure
+			}
+		}
+	} else {
+		request := task.Request
+		request.Diagnostics = diagnostics
+		request.Progress = func(progress borg.Progress) error { return output.Progress(id, attribution, progress) }
+		result, err = runner.Run(ctx, request)
+	}
 	outputErr := diagnostics.Flush()
 	output.FinishTask(id)
 	if outputErr = errors.Join(outputErr, output.Err()); outputErr != nil {
@@ -256,14 +292,17 @@ func runTask(ctx context.Context, runner OperationRunner, output *Output, id dis
 	case borg.Warning:
 		outcome = "completed with warnings"
 	case borg.Interrupted:
-		outcome = fmt.Sprintf("interrupted (signal %d)", result.Signal)
+		outcome = "interrupted"
+		if result.Signal != 0 {
+			outcome = fmt.Sprintf("interrupted (signal %d)", result.Signal)
+		}
 	}
 	writer := output.Writer(true, label)
 	if _, outputErr := fmt.Fprintln(writer, outcome); outputErr != nil {
 		result.Outcome = borg.Failure
 		err = errors.Join(err, outputErr)
 	}
-	return TaskResult{Result: result, Err: err}
+	return TaskResult{Result: result, Err: err, Recovery: recovery}
 }
 
 type Output = display.Output
