@@ -44,23 +44,42 @@ type Stage struct {
 // Task is a schema-validated discriminated union. Only fields belonging to Type
 // can be populated. Sources, exclusions, and archive templates remain literal.
 type Task struct {
-	Type          string   `json:"type"`
-	Repository    string   `json:"repository"`
-	ArchivePrefix string   `json:"archive_prefix"`
-	ArchiveName   string   `json:"archive_name"`
-	SourceRoot    string   `json:"source_root"`
-	Sources       []string `json:"sources"`
-	Exclude       []string `json:"exclude"`
-	LockWait      *int     `json:"lock_wait"`
-	VerifyData    bool     `json:"verify_data"`
-	KeepWithin    string   `json:"keep_within"`
-	KeepSecondly  int      `json:"keep_secondly"`
-	KeepMinutely  int      `json:"keep_minutely"`
-	KeepHourly    int      `json:"keep_hourly"`
-	KeepDaily     int      `json:"keep_daily"`
-	KeepWeekly    int      `json:"keep_weekly"`
-	KeepMonthly   int      `json:"keep_monthly"`
-	KeepYearly    int      `json:"keep_yearly"`
+	Type          string          `json:"type"`
+	Repository    string          `json:"repository"`
+	ArchivePrefix string          `json:"archive_prefix"`
+	ArchiveName   string          `json:"archive_name"`
+	SourceRoot    string          `json:"source_root"`
+	Sources       []string        `json:"sources"`
+	Exclude       []string        `json:"exclude"`
+	LockWait      *int            `json:"lock_wait"`
+	VerifyData    bool            `json:"verify_data"`
+	KeepWithin    string          `json:"keep_within"`
+	KeepSecondly  int             `json:"keep_secondly"`
+	KeepMinutely  int             `json:"keep_minutely"`
+	KeepHourly    int             `json:"keep_hourly"`
+	KeepDaily     int             `json:"keep_daily"`
+	KeepWeekly    int             `json:"keep_weekly"`
+	KeepMonthly   int             `json:"keep_monthly"`
+	KeepYearly    int             `json:"keep_yearly"`
+	Paths         []string        `json:"paths"`
+	WholeArchive  bool            `json:"whole_archive"`
+	Checks        []RecoveryCheck `json:"checks"`
+	Sample        *RecoverySample `json:"sample"`
+}
+
+type RecoveryCheck struct {
+	Kind   string `json:"kind"`
+	Path   string `json:"path"`
+	Type   string `json:"type"`
+	Size   int64  `json:"size"`
+	Bytes  string `json:"bytes"`
+	Count  int64  `json:"count"`
+	SHA256 string `json:"sha256"`
+}
+
+type RecoverySample struct {
+	LiveRoot string `json:"live_root"`
+	Limit    int    `json:"limit"`
 }
 
 // Options makes discovery independent of process-global state in tests.

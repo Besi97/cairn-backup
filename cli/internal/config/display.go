@@ -70,6 +70,19 @@ func displaySnapshot(doc *yaml.Node, value any) *yaml.Node {
 			secrets[at(doc, []string{"repositories", name, "passphrase"})] = true
 		}
 	}
+	for name, entry := range value.(map[string]any)["workflows"].(map[string]any) {
+		workflow := entry.(map[string]any)
+		for si, stage := range workflow["stages"].([]any) {
+			for ti, task := range stage.(map[string]any)["tasks"].([]any) {
+				checks, _ := task.(map[string]any)["checks"].([]any)
+				for ci, check := range checks {
+					if _, present := check.(map[string]any)["bytes"]; present {
+						secrets[at(doc, []string{"workflows", name, "stages", strconv.Itoa(si), "tasks", strconv.Itoa(ti), "checks", strconv.Itoa(ci), "bytes"})] = true
+					}
+				}
+			}
+		}
+	}
 	return displayNode(redactAliases(doc, value, secrets), nil)
 }
 

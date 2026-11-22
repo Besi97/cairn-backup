@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -115,6 +116,34 @@ func (config *Config) resolve(home string, doc *yaml.Node) error {
 					return fail(append(fields, "repository"), "references an undefined repository")
 				}
 				defaultLockWait(task)
+				if task.Type == "recovery_check" {
+					if strings.ContainsAny(repo.Location, "{}\x00") || strings.ContainsAny(task.ArchiveName+task.ArchivePrefix, "/\x00") {
+						return fail(fields, "recovery requires a literal repository and archive selector")
+					}
+					validPath := func(value string, root bool) bool {
+						return len(value) <= 4096 && !strings.ContainsRune(value, 0) && !path.IsAbs(value) && path.Clean(value) == value && value != ".." && !strings.HasPrefix(value, "../") && (root || value != ".")
+					}
+					for _, value := range task.Paths {
+						if !validPath(value, false) {
+							return fail(append(fields, "paths"), "invalid literal recovery path")
+						}
+					}
+					for _, check := range task.Checks {
+						if !validPath(check.Path, true) {
+							return fail(append(fields, "checks"), "invalid literal assertion path")
+						}
+					}
+					if task.Sample != nil {
+						if strings.ContainsRune(task.Sample.LiveRoot, 0) {
+							return fail(append(fields, "sample"), "live root must not contain NUL")
+						}
+						resolved, err := localPath(task.Sample.LiveRoot, config.Directory, home)
+						if err != nil {
+							return fail(append(fields, "sample"), err.Error())
+						}
+						task.Sample.LiveRoot = resolved
+					}
+				}
 				if task.Type == "backup" {
 					root := task.SourceRoot
 					if root == "" {

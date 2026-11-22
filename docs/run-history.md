@@ -61,8 +61,8 @@ If the snapshot would exceed its cap, identifying details are discarded oldest
 run first with `details_omitted` set, then complete recovery records if necessary;
 run summaries remain. Evidence shares run retention and permissions.
 Workflow recovery execution emits reports with terminal task events; invalid
-evidence is omitted without changing the task summary or outcome. Configuration
-and schema exposure of recovery tasks remains separate work.
+evidence is omitted without changing the task summary or outcome. Recovery checks
+can be configured for manual or scheduled workflows.
 
 ## CLI inspection
 

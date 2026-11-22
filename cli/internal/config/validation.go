@@ -66,14 +66,17 @@ func validate(path string, doc *yaml.Node, value any) error {
 					if strings.Contains(leaf.SchemaURL, "/backupTask") {
 						reason = "provide exactly one archive_prefix or archive_name"
 					} else {
-						reason = "task type must be backup, prune, compact, or check"
+						reason = "invalid task type or assertion fields"
 					}
 				case "anyOf":
-					reason = "prune requires at least one effective retention rule"
+					reason = "missing required alternative fields"
+					if strings.Contains(leaf.SchemaURL, "/pruneTask") {
+						reason = "prune requires at least one effective retention rule"
+					}
 				case "not":
 					reason = "mutually exclusive fields or invalid value"
 				case "pattern":
-					reason = "invalid retention interval"
+					reason = "invalid value format"
 				}
 			}
 			return diagnostic(path, at(doc, leaf.InstanceLocation), safeFields(leaf.InstanceLocation), reason)
@@ -102,12 +105,12 @@ func usefulError(err *jsonschema.ValidationError, doc *yaml.Node) *jsonschema.Va
 		if reference, ok := cause.ErrorKind.(*kind.Reference); ok {
 			location = reference.URL
 		}
-		for _, kind := range []string{"backup", "prune", "compact", "check"} {
-			if strings.Contains(location, "/"+kind+"Task") {
+		for _, entry := range []struct{ schema, task string }{{"backup", "backup"}, {"prune", "prune"}, {"compact", "compact"}, {"check", "check"}, {"recoveryCheck", "recovery_check"}} {
+			if strings.Contains(location, "/"+entry.schema+"Task") {
 				fields := cause.InstanceLocation
 				if len(fields) >= 6 && fields[0] == "workflows" && fields[2] == "stages" && fields[4] == "tasks" {
 					typeNode := at(doc, append(append([]string{}, fields[:6]...), "type"))
-					skip = typeNode.Value != kind
+					skip = typeNode.Value != entry.task
 				}
 			}
 		}

@@ -33,6 +33,8 @@ func TestValidTasks(t *testing.T) {
 		`{type: check, repository: local}`,
 		`{type: check, repository: local, verify_data: false}`,
 		`{type: check, repository: local, verify_data: true, lock_wait: 0}`,
+		`{type: recovery_check, repository: local, archive_name: a, whole_archive: true, checks: [{kind: file_size, path: x, size: 0}]}`,
+		`{type: recovery_check, repository: local, archive_prefix: a, paths: [x], sample: {live_root: ., limit: 10000}}`,
 	} {
 		t.Run(task, func(t *testing.T) {
 			if err := schema.Validate(taskDocument(t, task)); err != nil {
@@ -68,6 +70,11 @@ func TestInvalidTasks(t *testing.T) {
 		`{}`,
 		`{repository: local}`,
 		`{type: unknown, repository: local}`,
+		`{type: recovery_check, repository: local, archive_name: a, whole_archive: true}`,
+		`{type: recovery_check, repository: local, archive_name: a, archive_prefix: b, whole_archive: true, sample: {live_root: ., limit: 1}}`,
+		`{type: recovery_check, repository: local, archive_name: a, paths: [x], whole_archive: true, sample: {live_root: ., limit: 1}}`,
+		`{type: recovery_check, repository: local, archive_name: a, whole_archive: true, checks: [{kind: file_sha256, path: x, sha256: nope}]}`,
+		`{type: recovery_check, repository: local, archive_name: a, whole_archive: true, sample: {live_root: ., limit: 0}}`,
 		`{type: compact}`,
 		`{type: compact, repository: ""}`,
 		`{type: compact, repository: null}`,

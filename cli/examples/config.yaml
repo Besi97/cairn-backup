@@ -91,3 +91,17 @@ workflows:
             source_root: /etc
             sources:
               - .
+
+  recovery_drill:
+    # Selectors are literal, not Borg glob patterns or placeholders.
+    stages:
+      - tasks:
+          - type: recovery_check
+            repository: local
+            archive_prefix: documents-
+            paths: [documents]
+            checks:
+              - {kind: path_type, path: documents, type: directory}
+              - {kind: file_bytes, path: documents/marker.txt, bytes: "ready\n"}
+            # Optional comparison against a live tree; not a snapshot.
+            sample: {live_root: ~/Documents, limit: 100}

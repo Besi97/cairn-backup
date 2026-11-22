@@ -3,7 +3,9 @@
 package workflow
 
 import (
+	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"time"
 
 	"github.com/Besi97/cairn-backup/cli/internal/backup"
@@ -12,7 +14,9 @@ import (
 	"github.com/Besi97/cairn-backup/cli/internal/compact"
 	"github.com/Besi97/cairn-backup/cli/internal/config"
 	"github.com/Besi97/cairn-backup/cli/internal/prune"
+	"github.com/Besi97/cairn-backup/cli/internal/recovery/assertions"
 	"github.com/Besi97/cairn-backup/cli/internal/recovery/drill"
+	"github.com/Besi97/cairn-backup/cli/internal/recovery/selection"
 )
 
 // Plan contains prepared operations, not open files or running subprocesses.
@@ -61,6 +65,42 @@ func Prepare(selected *config.Config, name string, now time.Time) (Plan, error) 
 func prepareTask(task config.Task, repository config.Repository, directory string, now time.Time) (Task, error) {
 	result := Task{Type: task.Type, Repository: task.Repository}
 	switch task.Type {
+	case "recovery_check":
+		repo, err := borg.PrepareRepository(borg.RepositoryOptions{Repository: repository.Location, PassphraseFile: repository.PassphraseFile, IdentityFile: repository.IdentityFile}, directory)
+		if err != nil {
+			return Task{}, err
+		}
+		repo.Access.Passphrase = repository.Passphrase
+		options := &drill.Options{Repository: repo, Dir: directory, LockWait: task.LockWait, Selector: selection.Selector{Exact: task.ArchiveName, LatestPrefix: task.ArchivePrefix}, Paths: append([]string(nil), task.Paths...), WholeArchive: task.WholeArchive}
+		for _, c := range task.Checks {
+			check := assertions.Check{Kind: assertions.Kind(c.Kind), Path: c.Path, Size: c.Size, Bytes: []byte(c.Bytes), Count: c.Count}
+			switch c.Type {
+			case "directory":
+				check.Type = fs.ModeDir
+			case "symlink":
+				check.Type = fs.ModeSymlink
+			case "fifo":
+				check.Type = fs.ModeNamedPipe
+			case "socket":
+				check.Type = fs.ModeSocket
+			case "block_device":
+				check.Type = fs.ModeDevice
+			case "char_device":
+				check.Type = fs.ModeDevice | fs.ModeCharDevice
+			}
+			if c.Kind == "file_sha256" {
+				digest, err := hex.DecodeString(c.SHA256)
+				if err != nil || len(digest) != len(check.Digest) {
+					return Task{}, fmt.Errorf("invalid digest")
+				}
+				copy(check.Digest[:], digest)
+			}
+			options.Checks = append(options.Checks, check)
+		}
+		if task.Sample != nil {
+			options.Sample = &drill.SampleOptions{LiveRoot: task.Sample.LiveRoot, Limit: task.Sample.Limit}
+		}
+		result.Drill, result.Scope = options, "recovery drill"
 	case "backup":
 		prepared, err := backup.Prepare(backup.Options{
 			Repository: repository.Location, ArchivePrefix: task.ArchivePrefix,
@@ -114,7 +154,7 @@ func prepareTask(task config.Task, repository config.Repository, directory strin
 	default:
 		return Task{}, fmt.Errorf("unsupported task type")
 	}
-	if task.Type != "compact" {
+	if task.Type != "compact" && task.Type != "recovery_check" {
 		result.Request.Access.Passphrase = repository.Passphrase
 	}
 	return result, nil
