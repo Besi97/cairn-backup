@@ -16,14 +16,16 @@ import (
 	"unicode/utf8"
 
 	"github.com/Besi97/cairn-backup/cli/internal/lifecycle"
+	"github.com/Besi97/cairn-backup/cli/internal/recovery/report"
 	"github.com/Besi97/cairn-backup/cli/internal/runlock"
 )
 
 const (
-	MaxRuns       = 100
-	MaxBytes      = 1 << 20
-	MaxLabelBytes = 256
-	lockWait      = 100 * time.Millisecond
+	MaxRuns          = 100
+	MaxBytes         = 1 << 20
+	MaxLabelBytes    = 256
+	MaxRecoveryTasks = 16
+	lockWait         = 100 * time.Millisecond
 )
 
 // ErrUnavailable deliberately excludes filesystem paths and underlying errors.
@@ -37,27 +39,35 @@ type TaskCounts struct {
 	Skipped     uint64 `json:"skipped"`
 }
 
+type RecoveryTask struct {
+	Stage    int                    `json:"stage"`
+	Task     int                    `json:"task"`
+	Evidence report.HistoryEvidence `json:"evidence"`
+}
+
 // Incomplete means no terminal event was recorded, not that work is still alive.
 // Partial means an event sequence gap was observed; counts may be incomplete.
 type Summary struct {
-	RunID         string            `json:"run_id"`
-	ConfigID      string            `json:"config_id,omitempty"`
-	Workflow      string            `json:"workflow,omitempty"`
-	Operation     string            `json:"operation,omitempty"`
-	Source        lifecycle.Source  `json:"source"`
-	ScheduledAt   time.Time         `json:"scheduled_at,omitempty"`
-	Preview       bool              `json:"preview,omitempty"`
-	FirstObserved time.Time         `json:"first_observed"`
-	LastObserved  time.Time         `json:"last_observed"`
-	StartedAt     *time.Time        `json:"started_at,omitempty"`
-	FinishedAt    *time.Time        `json:"finished_at,omitempty"`
-	Sequence      uint64            `json:"sequence"`
-	Outcome       lifecycle.Outcome `json:"outcome,omitempty"`
-	Reason        lifecycle.Reason  `json:"reason,omitempty"`
-	Incomplete    bool              `json:"incomplete"`
-	Partial       bool              `json:"partial,omitempty"`
-	Tasks         TaskCounts        `json:"tasks"`
-	Execution     *runlock.Evidence `json:"execution,omitempty"`
+	RunID           string            `json:"run_id"`
+	ConfigID        string            `json:"config_id,omitempty"`
+	Workflow        string            `json:"workflow,omitempty"`
+	Operation       string            `json:"operation,omitempty"`
+	Source          lifecycle.Source  `json:"source"`
+	ScheduledAt     time.Time         `json:"scheduled_at,omitempty"`
+	Preview         bool              `json:"preview,omitempty"`
+	FirstObserved   time.Time         `json:"first_observed"`
+	LastObserved    time.Time         `json:"last_observed"`
+	StartedAt       *time.Time        `json:"started_at,omitempty"`
+	FinishedAt      *time.Time        `json:"finished_at,omitempty"`
+	Sequence        uint64            `json:"sequence"`
+	Outcome         lifecycle.Outcome `json:"outcome,omitempty"`
+	Reason          lifecycle.Reason  `json:"reason,omitempty"`
+	Incomplete      bool              `json:"incomplete"`
+	Partial         bool              `json:"partial,omitempty"`
+	Tasks           TaskCounts        `json:"tasks"`
+	Execution       *runlock.Evidence `json:"execution,omitempty"`
+	Recovery        []RecoveryTask    `json:"recovery,omitempty"`
+	RecoveryOmitted uint64            `json:"recovery_omitted,omitempty"`
 }
 
 type snapshot struct {
@@ -352,11 +362,36 @@ func (s *Store) Observe(event lifecycle.Event) error {
 			run.Tasks.Skipped++
 		}
 	}
+	if event.Recovery != nil {
+		evidence, err := report.ForHistory(*event.Recovery)
+		if err != nil || event.Kind != lifecycle.TaskFinished || event.Stage <= 0 || event.Task <= 0 || len(run.Recovery) >= MaxRecoveryTasks {
+			omitRecovery(run)
+		} else {
+			run.Recovery = append(run.Recovery, RecoveryTask{event.Stage, event.Task, evidence})
+		}
+	}
 	sortRuns(data.Runs)
 	if len(data.Runs) > MaxRuns {
 		data.Runs = data.Runs[:MaxRuns]
 	}
 	raw, err := json.Marshal(data)
+	// Preserve summaries when accumulated evidence would exceed the snapshot cap.
+	for err == nil && len(raw) > MaxBytes/2 {
+		removed := false
+		for i := len(data.Runs) - 1; i >= 0; i-- {
+			r := &data.Runs[i]
+			if len(r.Recovery) > 0 {
+				r.Recovery = r.Recovery[:len(r.Recovery)-1]
+				omitRecovery(r)
+				removed = true
+				break
+			}
+		}
+		if !removed {
+			break
+		}
+		raw, err = json.Marshal(data)
+	}
 	// Atomic replacement needs one bounded scratch copy alongside the snapshot.
 	if err != nil || len(raw) > MaxBytes/2 {
 		return ErrUnavailable
@@ -382,6 +417,12 @@ func (s *Store) Observe(event lifecycle.Event) error {
 	return nil
 }
 
+func omitRecovery(r *Summary) {
+	if r.RecoveryOmitted < ^uint64(0) {
+		r.RecoveryOmitted++
+	}
+}
+
 func label(s string) bool { return len(s) <= MaxLabelBytes && utf8.ValidString(s) }
 
 func digest(s string) bool {
@@ -393,6 +434,14 @@ func digest(s string) bool {
 }
 
 func validSummary(s Summary) bool {
+	if len(s.Recovery) > MaxRecoveryTasks {
+		return false
+	}
+	for _, r := range s.Recovery {
+		if r.Stage <= 0 || r.Task <= 0 || !r.Evidence.Valid() {
+			return false
+		}
+	}
 	return !s.FirstObserved.IsZero() && s.Incomplete == (s.FinishedAt == nil) &&
 		validEvent(lifecycle.Event{
 			RunID: s.RunID, ConfigID: s.ConfigID, Workflow: s.Workflow, Operation: s.Operation,

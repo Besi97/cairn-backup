@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
+	"github.com/Besi97/cairn-backup/cli/internal/recovery/report"
 	"github.com/Besi97/cairn-backup/cli/internal/runlock"
 )
 
@@ -67,6 +68,7 @@ type Event struct {
 	Outcome     Outcome
 	Reason      Reason
 	Execution   *runlock.Evidence
+	Recovery    *report.Evidence
 }
 
 type Observer func(Event) error
