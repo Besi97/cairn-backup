@@ -132,7 +132,7 @@ func TestDrillWorkflowEvidenceAndStages(t *testing.T) {
 			var events []lifecycle.Event
 			ctx := lifecycle.WithObserver(t.Context(), func(e lifecycle.Event) error { events = append(events, e); return store.Observe(e) })
 			var output bytes.Buffer
-			task := Task{Type: "recovery", Repository: "repo", Scope: "recovery drill", Drill: &opts}
+			task := Task{Type: "recovery_check", Repository: "repo", Scope: "recovery drill", Drill: &opts}
 			result, err := (Executor{Runner: runner, Stdout: &output, Stderr: &output}).Run(ctx, Plan{Name: "test", Stages: [][]Task{{task, task}, {task}}})
 			if (err != nil) != tc.fail || result.Outcome != tc.outcome {
 				t.Fatalf("result %+v err %v output %s", result, err, output.String())
@@ -156,11 +156,11 @@ func TestDrillWorkflowEvidenceAndStages(t *testing.T) {
 			if finished != 2+(expectedStages-1) {
 				t.Fatalf("finished %d", finished)
 			}
-			if !strings.Contains(output.String(), "cairn [test 1.1 recovery/repo]") || !strings.Contains(output.String(), "Recovery evidence v1") || strings.Contains(output.String(), "secret-credential") {
+			if !strings.Contains(output.String(), "cairn [test 1.1 recovery_check/repo]") || !strings.Contains(output.String(), "Recovery evidence v1") || strings.Contains(output.String(), "secret-credential") {
 				t.Fatalf("output %s", output.String())
 			}
 			runs, err := store.List()
-			if err != nil || len(runs) != 1 || len(runs[0].Recovery) != finished {
+			if err != nil || len(runs) != 1 || runs[0].Partial || len(runs[0].Recovery) != finished {
 				t.Fatalf("history %+v err %v", runs, err)
 			}
 			raw, err := os.ReadFile(filepath.Join(state, "cairn", "history", "runs.json"))
