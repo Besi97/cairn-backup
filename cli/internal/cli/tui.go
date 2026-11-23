@@ -14,8 +14,8 @@ import (
 func newTUICommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "tui",
-		Short: "Open the read-only terminal interface",
-		Long: "Open the read-only terminal interface using the selected configuration.\n" +
+		Short: "Open the terminal interface",
+		Long: "Open the terminal interface using the selected configuration.\n" +
 			"Both standard input and standard output must be terminals.",
 		Args:              cobra.NoArgs,
 		ValidArgsFunction: cobra.NoFileCompletions,

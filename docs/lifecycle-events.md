@@ -72,7 +72,7 @@ Standalone events begin after argument validation and operation preparation.
 Configured execution events begin at the workflow-lock attempt; preparation
 errors during scheduled dispatch are reported as failed runs. Configuration
 loading, help, listing, TUI browsing/reload, and invalid standalone inputs are not
-runs. Reloading the read-only TUI never starts or changes workflow execution.
+runs. Reloading the TUI never starts or changes workflow execution.
 
 Events intentionally omit errors, command arguments, environment variables,
 credentials, repository locations, source paths, archive names/selectors, rendered
