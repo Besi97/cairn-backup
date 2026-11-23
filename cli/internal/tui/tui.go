@@ -34,6 +34,7 @@ const (
 	taskPage
 	archiveDetailPage
 	confirmPage
+	progressPage
 )
 
 // Model owns navigation and a validated TUI snapshot, separate from any agent.
@@ -62,6 +63,7 @@ type Model struct {
 	runs           *manualRunner
 	prepared       *workflow.Manual
 	confirmFrom    page
+	progressFrom   page
 	exiting        bool
 	interrupted    bool
 }
@@ -144,7 +146,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.changed()
 			case msg.Code == 'y':
 				cmd := m.runs.start(*m.prepared)
-				m.prepared, m.page = nil, m.confirmFrom
+				m.prepared, m.progressFrom, m.page = nil, m.confirmFrom, progressPage
 				m.refresh()
 				return m, cmd
 			}
@@ -184,6 +186,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m, tea.Quit
+		case msg.Code == 'p' && m.runs.message != "" && m.page != progressPage:
+			m.progressFrom, m.page = m.page, progressPage
+			return m.changed()
 		case (m.page == workflowsPage || m.page == workflowPage) && msg.Code == 's':
 			if m.runs.active || m.reloading || m.workflowName() == "" {
 				return m, nil
@@ -231,6 +236,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.changed()
 		case key.Matches(msg, m.keys.Back):
 			switch m.page {
+			case progressPage:
+				m.page = m.progressFrom
 			case historyPage:
 				m.history.stop()
 				m.page = homePage

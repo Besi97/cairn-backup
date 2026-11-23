@@ -87,6 +87,10 @@ func TestManualConfirmationAndCancellation(t *testing.T) {
 	if other != nil || m.page == confirmPage {
 		t.Fatal("started a second run")
 	}
+	m, _ = press(m, tea.KeyEscape, 0)
+	if m.page != workflowsPage || !m.runs.active || m.exiting {
+		t.Fatal("escape should browse without cancelling")
+	}
 	m, other = press(m, 'q', 0)
 	if other != nil || !m.exiting {
 		t.Fatal("quit did not wait")
@@ -125,6 +129,9 @@ func TestManualProgressAndHistoryRefresh(t *testing.T) {
 	}
 	m, _ = press(m, 's', 0)
 	m, cmd := press(m, 'y', 0)
+	if m.page != progressPage || !strings.Contains(m.View().Content, "Workflow progress") {
+		t.Fatal("run did not open progress page")
+	}
 	<-started
 	update := cmd()
 	next, cmd := m.Update(update)
@@ -132,15 +139,42 @@ func TestManualProgressAndHistoryRefresh(t *testing.T) {
 	if !strings.Contains(m.runs.message, "stage 2 task 1 started") || strings.Contains(m.runs.message, "secret") {
 		t.Fatalf("unsafe or missing progress: %q", m.runs.message)
 	}
+	m, _ = press(m, tea.KeyEscape, 0)
+	if m.page != workflowsPage || !m.runs.active {
+		t.Fatal("leaving progress stopped the run")
+	}
+	if !strings.Contains(m.View().Content, "stage 2 task 1 started") {
+		t.Fatal("progress not visible while browsing")
+	}
+	next, _ = m.Update(manualProgressWait{manualProgress: manualProgress{"RUNNING: stage 2 task 1 success."}})
+	m = next.(Model)
+	if !strings.Contains(m.View().Content, "stage 2 task 1 success") {
+		t.Fatal("new progress not visible while browsing")
+	}
 	m, _ = press(m, '?', 0)
 	if m.page != helpPage {
 		t.Fatal("navigation blocked during run")
+	}
+	m, _ = press(m, 'p', 0)
+	if m.page != progressPage || !strings.Contains(m.View().Content, "stage 2 task 1 success") {
+		t.Fatal("could not return to progress")
+	}
+	m, _ = press(m, tea.KeyEscape, 0)
+	if m.page != helpPage {
+		t.Fatal("progress did not return to previous page")
 	}
 	close(release)
 	next, cmd = m.Update(cmd())
 	m = next.(Model)
 	if m.runs.active || !strings.Contains(m.runs.message, "SUCCESS") || cmd == nil {
 		t.Fatal("completion did not start history refresh")
+	}
+	if !strings.Contains(m.View().Content, "SUCCESS") {
+		t.Fatal("outcome not visible while browsing")
+	}
+	m, _ = press(m, 'p', 0)
+	if m.page != progressPage || !strings.Contains(m.View().Content, "SUCCESS") {
+		t.Fatal("outcome not visible on progress page")
 	}
 	next, _ = m.Update(cmd())
 	m = next.(Model)

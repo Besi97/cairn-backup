@@ -26,6 +26,7 @@ type manualRunner struct {
 	done    chan struct{}
 	active  bool
 	message string
+	name    string
 	run     func(context.Context, workflow.Manual) (workflow.Result, error)
 }
 
@@ -39,6 +40,7 @@ func (r *manualRunner) start(manual workflow.Manual) tea.Cmd {
 	ctx, cancel := context.WithCancelCause(r.ctx)
 	stop := func() { cancel(cancellation.Signal(syscall.SIGINT)) }
 	r.cancel, r.done, r.active = stop, make(chan struct{}), true
+	r.name = config.DisplayText(manual.Plan.Name)
 	r.message = "RUNNING: q / Ctrl+C cancels and waits."
 	done := r.done
 	result := make(chan manualDone, 1)
