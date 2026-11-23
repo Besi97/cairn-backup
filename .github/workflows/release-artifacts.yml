@@ -22,28 +22,39 @@ jobs:
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.]+)?$ ]] || (( ${#RELEASE_VERSION} > 116 )); then
+          if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.]+)?$ ]] || (( ${#RELEASE_VERSION} > 110 )); then
             echo "Invalid release version: $RELEASE_VERSION" >&2
             exit 1
           fi
+      - uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@v4
       - name: Build images
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          docker build --platform linux/amd64 --target regular \
-            --build-arg "VERSION=$VERSION" -t "cairn-release-test:v$VERSION" .
-          docker build --platform linux/amd64 --target distroless \
-            --build-arg "VERSION=$VERSION" -t "cairn-release-test:v$VERSION-distroless" .
-      - name: Verify image versions
+          for arch in amd64 arm64; do
+            for variant in regular distroless; do
+              docker buildx build --load --platform "linux/$arch" --target "$variant" \
+                --build-arg "VERSION=$VERSION" -t "cairn-release-test:$variant-$arch" .
+            done
+          done
+      - name: Verify images
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          for tag in "v$VERSION" "v$VERSION-distroless"; do
-            actual=$(docker run --rm --network none "cairn-release-test:$tag" --version)
-            if [[ "$actual" != "cairn $VERSION" ]]; then
-              echo "Unexpected version in cairn-release-test:$tag: $actual" >&2
-              exit 1
-            fi
+          for arch in amd64 arm64; do
+            for variant in regular distroless; do
+              image="cairn-release-test:$variant-$arch"
+              actual=$(docker run --rm --platform "linux/$arch" --network none "$image" --version)
+              if [[ "$actual" != "cairn $VERSION" ]]; then
+                echo "Unexpected version in $image: $actual" >&2
+                exit 1
+              fi
+              docker run --rm --platform "linux/$arch" --network none --entrypoint /usr/bin/borg "$image" --version
+              docker run --rm --platform "linux/$arch" --network none --entrypoint /usr/bin/ssh "$image" -V
+            done
           done
 
   package:

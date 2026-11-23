@@ -69,33 +69,44 @@ jobs:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.]+)?$ ]] || (( ${#RELEASE_TAG} > 117 )); then
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.]+)?$ ]] || (( ${#RELEASE_TAG} > 111 )); then
             echo "Expected a release tag such as v0.1.0 or v0.1.0-rc.1" >&2
             exit 1
           fi
           image="ghcr.io/${REPOSITORY,,}"
           echo "image=$image" >> "$GITHUB_OUTPUT"
           echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@v4
       - name: Build images
         env:
           IMAGE: ${{ steps.images.outputs.image }}
           VERSION: ${{ steps.images.outputs.version }}
         run: |
-          docker build --platform linux/amd64 --target regular \
-            --build-arg "VERSION=$VERSION" -t "$IMAGE:v$VERSION" .
-          docker build --platform linux/amd64 --target distroless \
-            --build-arg "VERSION=$VERSION" -t "$IMAGE:v$VERSION-distroless" .
-      - name: Verify image versions
+          for arch in amd64 arm64; do
+            for variant in regular distroless; do
+              docker buildx build --load --platform "linux/$arch" --target "$variant" \
+                --build-arg "VERSION=$VERSION" -t "$IMAGE:verify-$variant-$arch" .
+            done
+          done
+      - name: Verify images
         env:
           IMAGE: ${{ steps.images.outputs.image }}
           VERSION: ${{ steps.images.outputs.version }}
         run: |
-          for tag in "v$VERSION" "v$VERSION-distroless"; do
-            actual=$(docker run --rm --network none "$IMAGE:$tag" --version)
-            if [[ "$actual" != "cairn $VERSION" ]]; then
-              echo "Unexpected version in $IMAGE:$tag: $actual" >&2
-              exit 1
-            fi
+          for arch in amd64 arm64; do
+            for variant in regular distroless; do
+              image="$IMAGE:verify-$variant-$arch"
+              actual=$(docker run --rm --platform "linux/$arch" --network none "$image" --version)
+              if [[ "$actual" != "cairn $VERSION" ]]; then
+                echo "Unexpected version in $image: $actual" >&2
+                exit 1
+              fi
+              docker run --rm --platform "linux/$arch" --network none --entrypoint /usr/bin/borg "$image" --version
+              docker run --rm --platform "linux/$arch" --network none --entrypoint /usr/bin/ssh "$image" -V
+            done
           done
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -103,10 +114,22 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Publish verified images
+      - name: Push verified images and publish manifests
         env:
           IMAGE: ${{ steps.images.outputs.image }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          docker push "$IMAGE:$RELEASE_TAG"
-          docker push "$IMAGE:$RELEASE_TAG-distroless"
+          for variant in regular distroless; do
+            for arch in amd64 arm64; do
+              suffix="-$arch"
+              if [[ "$variant" == distroless ]]; then suffix="-distroless$suffix"; fi
+              docker tag "$IMAGE:verify-$variant-$arch" "$IMAGE:$RELEASE_TAG$suffix"
+              docker push "$IMAGE:$RELEASE_TAG$suffix"
+              digest=$(docker image inspect "$IMAGE:$RELEASE_TAG$suffix" --format '{{index .RepoDigests 0}}')
+              echo "$digest" > "$variant-$arch.digest"
+            done
+          done
+          docker buildx imagetools create -t "$IMAGE:$RELEASE_TAG" \
+            "$(cat regular-amd64.digest)" "$(cat regular-arm64.digest)"
+          docker buildx imagetools create -t "$IMAGE:$RELEASE_TAG-distroless" \
+            "$(cat distroless-amd64.digest)" "$(cat distroless-arm64.digest)"
