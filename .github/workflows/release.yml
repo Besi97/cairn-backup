@@ -63,19 +63,40 @@ jobs:
         with:
           ref: ${{ github.event.release.tag_name }}
           persist-credentials: false
-      - name: Build and verify images
+      - name: Validate image version
         id: images
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.]+)?$ ]]; then
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.]+)?$ ]] || (( ${#RELEASE_TAG} > 117 )); then
             echo "Expected a release tag such as v0.1.0 or v0.1.0-rc.1" >&2
             exit 1
           fi
           image="ghcr.io/${REPOSITORY,,}"
-          bash tests/container/build-release.sh "${RELEASE_TAG#v}" "$image"
           echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+      - name: Build images
+        env:
+          IMAGE: ${{ steps.images.outputs.image }}
+          VERSION: ${{ steps.images.outputs.version }}
+        run: |
+          docker build --platform linux/amd64 --target regular \
+            --build-arg "VERSION=$VERSION" -t "$IMAGE:v$VERSION" .
+          docker build --platform linux/amd64 --target distroless \
+            --build-arg "VERSION=$VERSION" -t "$IMAGE:v$VERSION-distroless" .
+      - name: Verify image versions
+        env:
+          IMAGE: ${{ steps.images.outputs.image }}
+          VERSION: ${{ steps.images.outputs.version }}
+        run: |
+          for tag in "v$VERSION" "v$VERSION-distroless"; do
+            actual=$(docker run --rm --network none "$IMAGE:$tag" --version)
+            if [[ "$actual" != "cairn $VERSION" ]]; then
+              echo "Unexpected version in $IMAGE:$tag: $actual" >&2
+              exit 1
+            fi
+          done
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
