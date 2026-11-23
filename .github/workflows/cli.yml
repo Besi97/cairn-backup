@@ -41,6 +41,14 @@ jobs:
       - name: Test installation and service lifecycle with systemd PID 1
         run: tests/systemd/run.sh
 
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test container images
+        run: tests/container/run.sh
+
   borg-integration:
     runs-on: ubuntu-latest
     strategy:
