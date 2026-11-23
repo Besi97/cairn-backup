@@ -21,6 +21,9 @@ func TestHandlerVisibilityAndEscaping(t *testing.T) {
 		return w.Body.String()
 	}
 	body := get()
+	if !strings.Contains(body, "# HELP cairn_workflow_last_success_timestamp_seconds Timestamp of the latest known successful workflow completion.\n") {
+		t.Fatal("missing last success metric help")
+	}
 	if !strings.Contains(body, `workflow="daily\"\\\nname"`) || !strings.Contains(body, `cairn_workflow_last_success_known{workflow="daily\"\\\nname"} 0`) || strings.Contains(body, "secret-config-identity") || strings.Contains(body, "cairn_workflow_last_success_timestamp_seconds{") {
 		t.Fatal(body)
 	}

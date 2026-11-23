@@ -41,7 +41,7 @@ func Handler(c *Collector) http.Handler {
 			{"cairn_workflow_last_outcome", "Latest known workflow terminal outcome.", "gauge"},
 			{"cairn_workflow_last_duration_seconds", "Duration of latest terminal when known.", "gauge"},
 			{"cairn_workflow_last_duration_known", "Whether latest terminal duration is known.", "gauge"},
-			{"cairn_workflow_last_success_timestamp_seconds", "Latest known successful workflow completion, not backup age.", "gauge"},
+			{"cairn_workflow_last_success_timestamp_seconds", "Timestamp of the latest known successful workflow completion.", "gauge"},
 			{"cairn_workflow_last_success_known", "Whether a successful workflow completion is known.", "gauge"},
 		} {
 			fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s %s\n", def.name, def.help, def.name, def.typ)
