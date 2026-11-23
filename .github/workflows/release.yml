@@ -52,3 +52,40 @@ jobs:
             "cli/dist/cairn_${RELEASE_VERSION}_linux_amd64.tar.gz" \
             "cli/dist/cairn_${RELEASE_VERSION}_linux_arm64.tar.gz" \
             cli/dist/SHA256SUMS
+
+  images:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+      - name: Build and verify images
+        id: images
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.]+)?$ ]]; then
+            echo "Expected a release tag such as v0.1.0 or v0.1.0-rc.1" >&2
+            exit 1
+          fi
+          image="ghcr.io/${REPOSITORY,,}"
+          bash tests/container/build-release.sh "${RELEASE_TAG#v}" "$image"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish verified images
+        env:
+          IMAGE: ${{ steps.images.outputs.image }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          docker push "$IMAGE:$RELEASE_TAG"
+          docker push "$IMAGE:$RELEASE_TAG-distroless"

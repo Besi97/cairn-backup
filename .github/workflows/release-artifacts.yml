@@ -12,6 +12,17 @@ permissions:
   contents: read
 
 jobs:
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Build and verify images without publishing
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: bash tests/container/build-release.sh "$RELEASE_VERSION" cairn-release-test
+
   package:
     runs-on: ubuntu-latest
     steps:
