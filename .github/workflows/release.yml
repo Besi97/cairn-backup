@@ -54,58 +54,82 @@ jobs:
             cli/dist/SHA256SUMS
 
   images:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+    name: Verify ${{ matrix.variant }} / ${{ matrix.platform.arch }}
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [regular, distroless]
+        platform:
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.release.tag_name }}
           persist-credentials: false
       - name: Validate image version
-        id: images
+        id: version
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-          REPOSITORY: ${{ github.repository }}
         run: |
           if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.]+)?$ ]] || (( ${#RELEASE_TAG} > 111 )); then
             echo "Expected a release tag such as v0.1.0 or v0.1.0-rc.1" >&2
             exit 1
           fi
-          image="ghcr.io/${REPOSITORY,,}"
-          echo "image=$image" >> "$GITHUB_OUTPUT"
           echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
-      - uses: docker/setup-qemu-action@v4
+      - name: Build image
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ARCH: ${{ matrix.platform.arch }}
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          docker build --platform "linux/$ARCH" --target "$VARIANT" \
+            --build-arg "VERSION=$VERSION" -t "cairn-release:$VARIANT-$ARCH" .
+      - name: Verify image
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ARCH: ${{ matrix.platform.arch }}
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          image="cairn-release:$VARIANT-$ARCH"
+          [[ "$(docker image inspect "$image" --format '{{.Os}}/{{.Architecture}}')" == "linux/$ARCH" ]]
+          actual=$(docker run --rm --network none "$image" --version)
+          if [[ "$actual" != "cairn $VERSION" ]]; then
+            echo "Unexpected version in $image: $actual" >&2
+            exit 1
+          fi
+          docker run --rm --network none --entrypoint /usr/bin/borg "$image" --version
+          docker run --rm --network none --entrypoint /usr/bin/ssh "$image" -V
+      - name: Save verified image
+        env:
+          ARCH: ${{ matrix.platform.arch }}
+          VARIANT: ${{ matrix.variant }}
+        run: docker save "cairn-release:$VARIANT-$ARCH" -o image.tar
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          platforms: arm64
+          name: image-${{ matrix.variant }}-${{ matrix.platform.arch }}
+          path: image.tar
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  publish-images:
+    needs: images
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: image-*
+          path: images
       - uses: docker/setup-buildx-action@v4
-      - name: Build images
-        env:
-          IMAGE: ${{ steps.images.outputs.image }}
-          VERSION: ${{ steps.images.outputs.version }}
+      - name: Load verified images
         run: |
-          for arch in amd64 arm64; do
-            for variant in regular distroless; do
-              docker buildx build --load --platform "linux/$arch" --target "$variant" \
-                --build-arg "VERSION=$VERSION" -t "$IMAGE:verify-$variant-$arch" .
-            done
-          done
-      - name: Verify images
-        env:
-          IMAGE: ${{ steps.images.outputs.image }}
-          VERSION: ${{ steps.images.outputs.version }}
-        run: |
-          for arch in amd64 arm64; do
-            for variant in regular distroless; do
-              image="$IMAGE:verify-$variant-$arch"
-              actual=$(docker run --rm --platform "linux/$arch" --network none "$image" --version)
-              if [[ "$actual" != "cairn $VERSION" ]]; then
-                echo "Unexpected version in $image: $actual" >&2
-                exit 1
-              fi
-              docker run --rm --platform "linux/$arch" --network none --entrypoint /usr/bin/borg "$image" --version
-              docker run --rm --platform "linux/$arch" --network none --entrypoint /usr/bin/ssh "$image" -V
+          for variant in regular distroless; do
+            for arch in amd64 arm64; do
+              docker load -i "images/image-$variant-$arch/image.tar"
             done
           done
       - name: Log in to GHCR
@@ -116,20 +140,25 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Push verified images and publish manifests
         env:
-          IMAGE: ${{ steps.images.outputs.image }}
+          REPOSITORY: ${{ github.repository }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.]+)?$ ]] || (( ${#RELEASE_TAG} > 111 )); then
+            echo "Invalid release tag" >&2
+            exit 1
+          fi
+          image="ghcr.io/${REPOSITORY,,}"
           for variant in regular distroless; do
             for arch in amd64 arm64; do
               suffix="-$arch"
               if [[ "$variant" == distroless ]]; then suffix="-distroless$suffix"; fi
-              docker tag "$IMAGE:verify-$variant-$arch" "$IMAGE:$RELEASE_TAG$suffix"
-              docker push "$IMAGE:$RELEASE_TAG$suffix"
-              digest=$(docker image inspect "$IMAGE:$RELEASE_TAG$suffix" --format '{{index .RepoDigests 0}}')
+              docker tag "cairn-release:$variant-$arch" "$image:$RELEASE_TAG$suffix"
+              docker push "$image:$RELEASE_TAG$suffix"
+              digest=$(docker image inspect "$image:$RELEASE_TAG$suffix" --format '{{index .RepoDigests 0}}')
               echo "$digest" > "$variant-$arch.digest"
             done
           done
-          docker buildx imagetools create -t "$IMAGE:$RELEASE_TAG" \
+          docker buildx imagetools create -t "$image:$RELEASE_TAG" \
             "$(cat regular-amd64.digest)" "$(cat regular-arm64.digest)"
-          docker buildx imagetools create -t "$IMAGE:$RELEASE_TAG-distroless" \
+          docker buildx imagetools create -t "$image:$RELEASE_TAG-distroless" \
             "$(cat distroless-amd64.digest)" "$(cat distroless-arm64.digest)"
