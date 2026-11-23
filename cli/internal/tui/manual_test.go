@@ -5,12 +5,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
+	"github.com/Besi97/cairn-backup/cli/internal/cancellation"
 	"github.com/Besi97/cairn-backup/cli/internal/config"
+	"github.com/Besi97/cairn-backup/cli/internal/history"
 	"github.com/Besi97/cairn-backup/cli/internal/lifecycle"
 	"github.com/Besi97/cairn-backup/cli/internal/runlock"
 	"github.com/Besi97/cairn-backup/cli/internal/workflow"
@@ -49,6 +52,9 @@ func TestManualConfirmationAndCancellation(t *testing.T) {
 	m.runs.run = func(ctx context.Context, manual workflow.Manual) (workflow.Result, error) {
 		started <- manual.Plan.Name
 		<-ctx.Done()
+		if got := cancellation.From(ctx); got != syscall.SIGINT {
+			t.Errorf("cancellation signal = %v, want SIGINT", got)
+		}
 		<-release
 		return workflow.Result{Outcome: borg.Interrupted}, ctx.Err()
 	}
@@ -81,6 +87,10 @@ func TestManualConfirmationAndCancellation(t *testing.T) {
 	if other != nil || m.page == confirmPage {
 		t.Fatal("started a second run")
 	}
+	m, _ = press(m, tea.KeyEscape, 0)
+	if m.page != workflowsPage || !m.runs.active || m.exiting {
+		t.Fatal("escape should browse without cancelling")
+	}
 	m, other = press(m, 'q', 0)
 	if other != nil || !m.exiting {
 		t.Fatal("quit did not wait")
@@ -101,6 +111,110 @@ func TestManualConfirmationAndCancellation(t *testing.T) {
 	if _, ok := quit().(tea.QuitMsg); !ok {
 		t.Fatal("did not quit after run stopped")
 	}
+}
+
+func TestManualProgressAndHistoryRefresh(t *testing.T) {
+	m := manualModel(t)
+	started, release := make(chan struct{}), make(chan struct{})
+	m.runs.run = func(ctx context.Context, _ workflow.Manual) (workflow.Result, error) {
+		events := lifecycle.New(ctx, lifecycle.Event{Workflow: "secret-passphrase"})
+		events.Emit(lifecycle.Event{Kind: lifecycle.TaskStarted, Stage: 2, Task: 1, Repository: "secret-passphrase"})
+		close(started)
+		<-release
+		return workflow.Result{Outcome: borg.Success}, nil
+	}
+	m.history.attempted = true
+	m.history.source = func(context.Context) ([]history.Observation, error) {
+		return []history.Observation{{Summary: history.Summary{RunID: "new-run"}}}, nil
+	}
+	m, _ = press(m, 's', 0)
+	m, cmd := press(m, 'y', 0)
+	if m.page != progressPage || !strings.Contains(m.View().Content, "Workflow progress") {
+		t.Fatal("run did not open progress page")
+	}
+	<-started
+	update := cmd()
+	next, cmd := m.Update(update)
+	m = next.(Model)
+	if !strings.Contains(m.runs.message, "stage 2 task 1 started") || strings.Contains(m.runs.message, "secret") {
+		t.Fatalf("unsafe or missing progress: %q", m.runs.message)
+	}
+	m, _ = press(m, tea.KeyEscape, 0)
+	if m.page != workflowsPage || !m.runs.active {
+		t.Fatal("leaving progress stopped the run")
+	}
+	if !strings.Contains(m.View().Content, "stage 2 task 1 started") {
+		t.Fatal("progress not visible while browsing")
+	}
+	next, _ = m.Update(manualProgressWait{manualProgress: manualProgress{"RUNNING: stage 2 task 1 success."}})
+	m = next.(Model)
+	if !strings.Contains(m.View().Content, "stage 2 task 1 success") {
+		t.Fatal("new progress not visible while browsing")
+	}
+	m, _ = press(m, '?', 0)
+	if m.page != helpPage {
+		t.Fatal("navigation blocked during run")
+	}
+	m, _ = press(m, 'p', 0)
+	if m.page != progressPage || !strings.Contains(m.View().Content, "stage 2 task 1 success") {
+		t.Fatal("could not return to progress")
+	}
+	m, _ = press(m, tea.KeyEscape, 0)
+	if m.page != helpPage {
+		t.Fatal("progress did not return to previous page")
+	}
+	close(release)
+	next, cmd = m.Update(cmd())
+	m = next.(Model)
+	if m.runs.active || !strings.Contains(m.runs.message, "SUCCESS") || cmd == nil {
+		t.Fatal("completion did not start history refresh")
+	}
+	if !strings.Contains(m.View().Content, "SUCCESS") {
+		t.Fatal("outcome not visible while browsing")
+	}
+	m, _ = press(m, 'p', 0)
+	if m.page != progressPage || !strings.Contains(m.View().Content, "SUCCESS") {
+		t.Fatal("outcome not visible on progress page")
+	}
+	next, _ = m.Update(cmd())
+	m = next.(Model)
+	if len(m.history.runs) != 1 || m.history.runs[0].Summary.RunID != "new-run" {
+		t.Fatal("history did not refresh")
+	}
+	m.runs.close()
+	m.history.close()
+}
+
+func TestManualCompletionRefreshWaitsForEarlierHistoryRead(t *testing.T) {
+	m := manualModel(t)
+	started, release := make(chan struct{}), make(chan struct{})
+	calls := 0
+	m.history.source = func(ctx context.Context) ([]history.Observation, error) {
+		calls++
+		if calls == 1 {
+			close(started)
+			<-ctx.Done()
+			<-release
+			return nil, ctx.Err()
+		}
+		return []history.Observation{{Summary: history.Summary{RunID: "fresh"}}}, nil
+	}
+	_, old := m.startHistory()
+	<-started
+	next, wait := m.refreshHistoryAfterRun()
+	m = next.(Model)
+	close(release)
+	if msg := old(); msg != nil {
+		t.Fatal("cancelled read published stale history")
+	}
+	next, load := m.Update(wait())
+	m = next.(Model)
+	next, _ = m.Update(load())
+	m = next.(Model)
+	if len(m.history.runs) != 1 || m.history.runs[0].Summary.RunID != "fresh" {
+		t.Fatal("history was not reread after previous read stopped")
+	}
+	m.history.close()
 }
 
 func TestManualContentionUsesSharedLock(t *testing.T) {
@@ -128,7 +242,17 @@ func TestManualContentionUsesSharedLock(t *testing.T) {
 	})
 	m, _ = press(m, 's', 0)
 	m, cmd := press(m, 'y', 0)
-	msg := cmd().(manualDone)
+	var msg manualDone
+	for {
+		switch update := cmd().(type) {
+		case manualDone:
+			msg = update
+		case manualProgressWait:
+			cmd = update.next
+			continue
+		}
+		break
+	}
 	if !strings.Contains(msg.message, "already running") {
 		t.Fatalf("contention: %s", msg.message)
 	}

@@ -84,6 +84,9 @@ func (m Model) footer() string {
 	if m.page == confirmPage {
 		return "y start  esc cancel  ↑↓ scroll"
 	}
+	if m.page == progressPage {
+		return "esc browse  q quit  ↑↓ scroll"
+	}
 	keys := "↑↓ select  enter open"
 	switch m.page {
 	case homePage:
@@ -132,6 +135,9 @@ func (m Model) footer() string {
 	}
 	if m.browser.editing {
 		keys = "enter search whole archive  esc discard"
+	}
+	if m.runs.message != "" {
+		return "p progress  ? help  q quit  ·  " + keys
 	}
 	return "? help  q quit  ·  " + keys
 }
