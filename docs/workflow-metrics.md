@@ -39,6 +39,63 @@ zero. Use the known gauges and `cairn_history_available` in alerts. External
 Prometheus rules can compare `time()` to the last-success timestamp; this is
 workflow completion freshness, not backup age.
 
+## Scraping and alerting
+
+For Prometheus running on the same host and network namespace as the agent:
+
+```yaml
+scrape_configs:
+  - job_name: cairn
+    static_configs:
+      - targets: ["127.0.0.1:9090"]
+```
+
+Check the endpoint with `curl -fsS http://127.0.0.1:9090/metrics`.
+For remote scrapes, restrict network access and use an authenticated TLS proxy;
+the Cairn endpoint has neither authentication nor TLS, and its labels reveal
+workflow names.
+
+The following external Prometheus rules illustrate a 26-hour freshness threshold
+for a daily workflow named `nightly`. Select workflows and set thresholds and
+`for` durations to suit their schedules. Load the rules with Prometheus
+`rule_files`; configure Alertmanager separately for notifications.
+
+```yaml
+groups:
+  - name: cairn
+    rules:
+      - alert: CairnWorkflowStale
+        expr: time() - cairn_workflow_last_success_timestamp_seconds{job="cairn",workflow="nightly"} > 26 * 60 * 60
+        for: 10m
+        annotations:
+          summary: "No recent successful workflow: {{ $labels.workflow }}"
+      - alert: CairnWorkflowSuccessUnknown
+        expr: cairn_workflow_last_success_known{job="cairn",workflow="nightly"} == 0
+        for: 10m
+        annotations:
+          summary: "Last successful workflow is unknown: {{ $labels.workflow }}"
+      - alert: CairnWorkflowFailed
+        expr: cairn_workflow_last_outcome{job="cairn",workflow="nightly",outcome="failure"} == 1
+        for: 1m
+        annotations:
+          summary: "Latest workflow run failed: {{ $labels.workflow }}"
+      - alert: CairnHistoryUnavailable
+        expr: cairn_history_available{job="cairn"} == 0
+        for: 10m
+      - alert: CairnScrapeFailed
+        expr: up{job="cairn"} == 0
+        for: 5m
+```
+
+Unknown success can mean a new workflow, evicted history, or failed history
+delivery; it does not prove the workflow never succeeded. The failure rule
+reports the latest known outcome and clears on a later outcome; transient
+failures between scrapes may be missed. Counters such as
+`cairn_workflow_events_total` and `cairn_workflow_busy_total` cover only events
+observed by the running agent and reset on restart. A scrape failure alert
+requires a configured target; monitor service discovery separately if targets
+can disappear. Manual workflows need their own appropriate alert policy.
+
 ## Available observations
 
 `Snapshot()` returns one `Workflow` per configured name:
