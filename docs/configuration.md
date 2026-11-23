@@ -209,6 +209,11 @@ stop dispatching and wait for active-work cancellation cleanup before returning
 `130`/`143` and releasing the agent lock. See [local run history](run-history.md)
 for retained outcomes and recovery evidence.
 
+An optional top-level `metrics: {listen: "127.0.0.1:9090"}` enables the agent's
+Prometheus endpoint. It is disabled by default and has no authentication or
+TLS. See [workflow metrics](workflow-metrics.md) for address requirements,
+security, metric semantics, and limitations.
+
 `cron` has five whitespace-separated fields:
 
 ```text

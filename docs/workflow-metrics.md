@@ -1,8 +1,43 @@
 # Workflow metrics collection
 
-The collector currently exposes an internal Go API, not a metrics endpoint.
-An optional Prometheus endpoint is planned separately in [#153](https://github.com/Besi97/cairn-backup/issues/153);
-the field names below are not Prometheus metric names.
+The agent can expose an optional Prometheus endpoint:
+
+```yaml
+metrics:
+  listen: "127.0.0.1:9090"
+```
+
+Omit `metrics` to disable it (the default). `listen` must be an explicit numeric
+IPv4 or IPv6 address and port 1–65535, for example `[::1]:9090`. The agent
+serves only `GET /metrics`, without authentication or TLS. Bind to loopback or
+use network controls and an authenticated TLS proxy. Workflow names are
+sensitive labels. A bind or listener failure is logged to the agent diagnostic
+stream; scheduling continues without a functioning endpoint. The endpoint
+stops on agent shutdown.
+
+## Prometheus metrics
+
+All workflow metrics have a `workflow` label. Terminal events also have an
+`outcome` label (`success`, `warning`, `failure`, `interrupted`, `skipped`).
+
+| Metric | Meaning |
+| --- | --- |
+| `cairn_history_available` | Whether retained history could be read. |
+| `cairn_workflow_events_total` | Terminal events observed locally since agent start, by outcome. |
+| `cairn_workflow_busy_total` | Locally observed busy rejections since agent start. |
+| `cairn_workflow_in_flight` | Locally observed active runs; a lower bound if unknown. |
+| `cairn_workflow_in_flight_known` | Whether the local in-flight count is known. |
+| `cairn_workflow_last_finished_timestamp_seconds` | Latest known terminal time, Unix seconds. |
+| `cairn_workflow_last_outcome` | Latest known terminal outcome, represented by a single outcome-labelled series with value 1. |
+| `cairn_workflow_last_duration_seconds` | Duration of the latest terminal when known. |
+| `cairn_workflow_last_duration_known` | Whether that duration is known. |
+| `cairn_workflow_last_success_timestamp_seconds` | Latest known successful workflow completion, Unix seconds. |
+| `cairn_workflow_last_success_known` | Whether a successful workflow completion is known. |
+
+Unknown timestamps, outcomes and durations are omitted rather than reported as
+zero. Use the known gauges and `cairn_history_available` in alerts. External
+Prometheus rules can compare `time()` to the last-success timestamp; this is
+workflow completion freshness, not backup age.
 
 ## Available observations
 
@@ -29,12 +64,12 @@ configured workflow names (each at most 256 UTF-8 bytes). Pass the configuration
 `runlock.Identity.Digest()` and attach `collector.Observe` with
 `lifecycle.WithAdditionalObserver` before dispatch. `collector.Snapshot()` is
 concurrency-safe and returns sorted `Workflow` values and `HistoryAvailable`.
-There is no endpoint or automatic collector installation. A future transport must
-retain these scope and unknown semantics and must not expose the identity.
+The agent installs this observer for scheduled work. Manual work in other
+processes is visible only through retained history, not process-local counters.
 
 Workflow names are labels by explicit choice: they may reveal sensitive business
 information. Do not put secrets, paths, or other sensitive information in names;
-protect any future metrics transport accordingly. No repository, archive, path,
+protect the endpoint accordingly. No repository, archive, path,
 configuration identity, run ID, task, or error becomes a label. The fixed name
 set and fixed outcome fields bound series per collector; consumers must also
 bound how many collectors/configurations they export.
