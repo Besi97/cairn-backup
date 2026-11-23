@@ -187,7 +187,7 @@ func (m *Model) refresh() {
 			"\n\n" + section("Workflow runs", "In Workflows, s reviews the selected workflow; y confirms.\nEsc cancels confirmation. q / Ctrl+C cancels an active run and waits.\nOnly one TUI run at a time; busy workflows are not queued.\nBorg output is not shown; use the CLI for diagnostics.") +
 			"\n\n" + section("Configuration", "y opens workflow, repository, or full configuration YAML.\nr reloads the selected file into this TUI only.\nA failed reload keeps the previous snapshot.\nNo automatic rereads. No live agent controls.") +
 			"\n\n" + section("Archives", "/ edits a literal, case-sensitive file path search.\nEnter scans the whole archive, not just retained rows.\nEsc cancels a scan when leaving its list.\nBrowsing may open credentials and contact repositories.\nListings retain at most 1,000 rows / 8 MiB.\nLossy display paths are never exact restore selectors.") +
-			"\n\n" + section("History", "g rereads local history; no automatic refresh.\nOnly run summaries and task totals are retained.\nIncomplete does not mean active.\nOwner and lock evidence is momentary, not live agent state.\nConfiguration identities do not reveal content differences.") +
+			"\n\n" + section("History", "g rereads local history; TUI-started runs refresh it on completion.\nOnly run summaries and task totals are retained.\nIncomplete does not mean active.\nOwner and lock evidence is momentary, not live agent state.\nConfiguration identities do not reveal content differences.") +
 			"\n\nClosing this interface does not stop the agent or unrelated runs."
 	}
 	if m.page != yamlPage {

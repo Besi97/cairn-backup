@@ -446,3 +446,117 @@ func TestTUIArchiveTerminal(t *testing.T) {
 		})
 	}
 }
+
+func TestTUIRealBorgWorkflow(t *testing.T) {
+	borg, err := exec.LookPath("borg")
+	if err != nil {
+		t.Skip("Borg not installed")
+	}
+	version, err := exec.Command(borg, "--version").Output()
+	if err != nil || !strings.HasPrefix(string(version), "borg 1.") {
+		t.Skip("Borg 1.x required")
+	}
+	binary := buildExecutable(t, "cairn", ".")
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "bin"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(borg, filepath.Join(dir, "bin", "borg")); err != nil {
+		t.Fatal(err)
+	}
+	init := exec.Command(borg, "init", "--encryption=none", filepath.Join(dir, "repo"))
+	init.Env = append(os.Environ(), "HOME="+dir, "XDG_CONFIG_HOME="+dir)
+	if output, err := init.CombinedOutput(); err != nil {
+		t.Fatalf("borg init: %v: %s", err, output)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "payload"), []byte("test"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	writeTUIConfig(t, dir, `version: 1
+repositories:
+  local: {location: ../repo}
+workflows:
+  nightly:
+    stages:
+      - tasks:
+          - {type: backup, repository: local, archive_name: smoke, sources: [../payload]}
+`)
+	s := startTerminal(t, binary, dir, "tui")
+	s.waitFor(t, "Configuration:")
+	send := func(keys, want string) {
+		t.Helper()
+		offset := len(s.text())
+		if _, err := io.WriteString(s.file, keys); err != nil {
+			t.Fatal(err)
+		}
+		s.waitForAfter(t, want, offset)
+	}
+	send("\t", "Workflows")
+	send("s", "confirm start")
+	send("y", "SUCCESS:")
+	send("\t\t\t", "nightly")
+	send("q", "\x1b[?1049l")
+	s.exit(t, 0)
+}
+
+func TestTUIWorkflowCancellationParity(t *testing.T) {
+	binary := buildExecutable(t, "cairn", ".")
+	fake := buildExecutable(t, "borg", "../../internal/tui/testdata/workflowborg")
+	for _, mode := range []string{"cli", "q", "ctrl-c"} {
+		t.Run(mode, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.Mkdir(filepath.Join(dir, "bin"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(fake, filepath.Join(dir, "bin", "borg")); err != nil {
+				t.Fatal(err)
+			}
+			path := writeTUIConfig(t, dir, tuiConfig)
+			args := []string{"tui"}
+			if mode == "cli" {
+				args = []string{"workflow", "run", "nightly", "--config", path}
+			}
+			s := startTerminal(t, binary, dir, args...)
+			if mode != "cli" {
+				s.waitFor(t, "Configuration:")
+				_, _ = io.WriteString(s.file, "\t")
+				s.waitFor(t, "Workflow: nightly")
+				_, _ = io.WriteString(s.file, "s")
+				s.waitFor(t, "confirm start")
+				_, _ = io.WriteString(s.file, "y")
+			}
+			deadline := time.Now().Add(10 * time.Second)
+			for {
+				if _, err := os.Stat(filepath.Join(dir, "running")); err == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("Borg did not start: %s", s.text())
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			switch mode {
+			case "cli":
+				if err := s.cmd.Process.Signal(syscall.SIGINT); err != nil {
+					t.Fatal(err)
+				}
+			case "q":
+				_, _ = io.WriteString(s.file, "q")
+			default:
+				_, _ = io.WriteString(s.file, "\x03")
+			}
+			code := 130
+			if mode == "q" {
+				code = 0
+			}
+			s.exit(t, code)
+			sig, err := os.ReadFile(filepath.Join(dir, "signal"))
+			if err != nil || string(sig) != "interrupt" {
+				t.Fatalf("Borg signal = %q, %v", sig, err)
+			}
+			if _, err := os.Stat(filepath.Join(dir, "cleaned")); err != nil {
+				t.Fatal("exited before Borg cleanup:", err)
+			}
+		})
+	}
+}

@@ -94,6 +94,10 @@ func (m Model) Init() tea.Cmd { return nil }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case manualProgressWait:
+		m.runs.message = msg.message
+		m.refresh()
+		return m, msg.next
 	case manualDone:
 		m.runs.active = false
 		m.runs.message = msg.message
@@ -103,8 +107,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Quit
 		}
-		m.refresh()
-		return m, nil
+		return m.refreshHistoryAfterRun()
+	case historyRefresh:
+		if msg.job != m.history.job {
+			return m, nil
+		}
+		return m.startHistory()
 	case scanUpdate:
 		return m.updateScan(msg)
 	case historyUpdate:
@@ -206,7 +214,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.changed()
 		case key.Matches(msg, m.keys.Next, m.keys.Previous):
 			m.browser.stop()
-			m.history.stop()
+			if m.page == historyPage || m.page == runPage {
+				m.history.stop()
+			}
 			m.browser.rows = nil
 			m.browser.archive = archive.Archive{}
 			direction := 1

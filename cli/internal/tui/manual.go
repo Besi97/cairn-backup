@@ -6,15 +6,19 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"syscall"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
+	"github.com/Besi97/cairn-backup/cli/internal/cancellation"
 	"github.com/Besi97/cairn-backup/cli/internal/config"
+	"github.com/Besi97/cairn-backup/cli/internal/lifecycle"
 	"github.com/Besi97/cairn-backup/cli/internal/runlock"
 	"github.com/Besi97/cairn-backup/cli/internal/workflow"
 )
 
 type manualDone struct{ message string }
+type manualProgress struct{ message string }
 
 type manualRunner struct {
 	ctx     context.Context
@@ -32,14 +36,34 @@ func newManualRunner() *manualRunner {
 }
 
 func (r *manualRunner) start(manual workflow.Manual) tea.Cmd {
-	ctx, cancel := context.WithCancel(r.ctx)
-	r.cancel, r.done, r.active = cancel, make(chan struct{}), true
+	ctx, cancel := context.WithCancelCause(r.ctx)
+	stop := func() { cancel(cancellation.Signal(syscall.SIGINT)) }
+	r.cancel, r.done, r.active = stop, make(chan struct{}), true
 	r.message = "RUNNING: q / Ctrl+C cancels and waits."
 	done := r.done
 	result := make(chan manualDone, 1)
+	progress := make(chan manualProgress, 1)
 	go func() {
 		defer close(done)
-		defer cancel()
+		defer stop()
+		ctx = lifecycle.WithAdditionalObserver(ctx, func(event lifecycle.Event) error {
+			message := progressMessage(event)
+			if message != "" {
+				select {
+				case progress <- manualProgress{message}:
+				default:
+					select {
+					case <-progress:
+					default:
+					}
+					select {
+					case progress <- manualProgress{message}:
+					default:
+					}
+				}
+			}
+			return nil
+		})
 		outcome, err := r.run(ctx, manual)
 		message := "FAILED: Borg diagnostics were not retained; check history."
 		switch {
@@ -48,13 +72,50 @@ func (r *manualRunner) start(manual workflow.Manual) tea.Cmd {
 		case outcome.Outcome == borg.Interrupted:
 			message = "INTERRUPTED: check history."
 		case err == nil && outcome.Outcome == borg.Success:
-			message = "SUCCESS: refresh history for details."
+			message = "SUCCESS: see History for details."
 		case err == nil && outcome.Outcome == borg.Warning:
 			message = "WARNING: Borg diagnostics were not retained."
 		}
 		result <- manualDone{message}
 	}()
-	return func() tea.Msg { return <-result }
+	return waitManual(result, progress)
+}
+
+func waitManual(result <-chan manualDone, progress <-chan manualProgress) tea.Cmd {
+	return func() tea.Msg {
+		select {
+		case done := <-result:
+			return done
+		default:
+		}
+		select {
+		case done := <-result:
+			return done
+		case update := <-progress:
+			return manualProgressWait{manualProgress: update, next: waitManual(result, progress)}
+		}
+	}
+}
+
+type manualProgressWait struct {
+	manualProgress
+	next tea.Cmd
+}
+
+func progressMessage(event lifecycle.Event) string {
+	switch event.Kind {
+	case lifecycle.RunStarted:
+		return "RUNNING: workflow started."
+	case lifecycle.StageStarted:
+		return fmt.Sprintf("RUNNING: stage %d started.", event.Stage)
+	case lifecycle.StageFinished, lifecycle.StageSkipped:
+		return fmt.Sprintf("RUNNING: stage %d %s.", event.Stage, config.DisplayText(string(event.Outcome)))
+	case lifecycle.TaskStarted:
+		return fmt.Sprintf("RUNNING: stage %d task %d started.", event.Stage, event.Task)
+	case lifecycle.TaskFinished, lifecycle.TaskSkipped:
+		return fmt.Sprintf("RUNNING: stage %d task %d %s.", event.Stage, event.Task, config.DisplayText(string(event.Outcome)))
+	}
+	return ""
 }
 
 func (r *manualRunner) close() {
