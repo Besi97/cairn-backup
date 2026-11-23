@@ -1,8 +1,8 @@
 # Local run history
 
 Cairn CLI invocations save small structured run summaries lazily, on the first
-lifecycle event. Help, configuration validation, archive browsing, and the
-read-only TUI do not create history. Standalone operations, manual workflows,
+lifecycle event. Help, configuration validation, and browsing in the TUI do not
+create history. TUI-started workflows, standalone operations, manual workflows,
 and scheduled workflow attempts share the same per-user store:
 
 - `$XDG_STATE_HOME/cairn/history` when `XDG_STATE_HOME` is absolute.

@@ -81,6 +81,9 @@ func panel(body viewport.Model, width, height int) string {
 }
 
 func (m Model) footer() string {
+	if m.page == confirmPage {
+		return "y start  esc cancel  ↑↓ scroll"
+	}
 	keys := "↑↓ select  enter open"
 	switch m.page {
 	case homePage:
@@ -88,9 +91,9 @@ func (m Model) footer() string {
 	case configurationPage:
 		keys = "y view YAML  r reload config  ↑↓ scroll"
 	case workflowsPage:
-		keys += "  y YAML"
+		keys = "s start  ↑↓ select  enter open  y YAML"
 	case workflowPage:
-		keys = "↑↓ select task  enter details  y workflow YAML"
+		keys = "s start  ↑↓ select task  enter details  y YAML"
 	case archivesPage:
 		keys = "↑↓ select  enter list archives  y YAML"
 	case archiveListPage:
@@ -122,6 +125,9 @@ func (m Model) footer() string {
 			keys += "  / search"
 		case historyPage:
 			keys += "  g refresh"
+		}
+		if m.page == workflowsPage || m.page == workflowPage {
+			keys = "s start  " + keys
 		}
 	}
 	if m.browser.editing {
@@ -160,21 +166,27 @@ func (m Model) inspectorView() tea.View {
 			if m.status != "" {
 				notice = m.status
 			}
+			if m.runs.message != "" && (m.status == "" || m.runs.active) {
+				notice = m.runs.message
+			}
+			if m.exiting {
+				notice = "Cancelling workflow and waiting for it to stop…"
+			}
 			if notice == "" {
-				notice = "Read-only · no operations are started from this interface"
+				notice = "Workflow starts require confirmation"
 			}
 			scroll := m.body
 			if m.split() {
 				scroll = m.details
 			}
-			if scroll.TotalLineCount() > scroll.Height() && m.status == "" && m.notice == "" {
-				notice = fmt.Sprintf("Details %d%% · pgup/pgdn scroll · read-only", int(scroll.ScrollPercent()*100))
+			if scroll.TotalLineCount() > scroll.Height() && m.status == "" && m.notice == "" && m.runs.message == "" && !m.exiting {
+				notice = fmt.Sprintf("Details %d%% · pgup/pgdn scroll", int(scroll.ScrollPercent()*100))
 			}
 			gap := "\n\n"
 			if m.height < 16 {
 				gap = "\n"
 			}
-			content = clipped(heading("CAIRN")+mutedStyle.Render("  /  read-only inspector"), width) + "\n" +
+			content = clipped(heading("CAIRN")+mutedStyle.Render("  /  inspector"), width) + "\n" +
 				clipped(navigation, width) + gap +
 				clipped(heading(m.title), width) + "\n" +
 				clipped(mutedStyle.Render(m.subtitle), width) + "\n\n" +

@@ -123,7 +123,7 @@ func (m *Model) refresh() {
 			section("Available to inspect", counted(len(m.selected.Workflows), "workflow", "workflows")+"\n\n"+
 				counted(len(m.selected.Repositories), "repository", "repositories")+"\n\nLocal run history") +
 			"\n\n" + section("Browse without changing anything", "Use Tab to choose a view.\n\nInspect workflow plans, browse archive metadata,\nor review recorded run outcomes.") +
-			"\n\n" + mutedStyle.Render("The TUI configuration is a separate snapshot.\nNo live agent state is observed. Use the CLI to run operations.")
+			"\n\n" + mutedStyle.Render("The TUI configuration is a separate snapshot.\nNo live agent state is observed.")
 	case workflowsPage:
 		m.title, m.subtitle = "Workflows", "Choose a workflow to inspect its schedule and execution plan"
 		var items []inspectionItem
@@ -149,6 +149,9 @@ func (m *Model) refresh() {
 		}
 		content = m.itemList(items, m.task, "No tasks configured.")
 		detail, identity = m.taskDetail(), fmt.Sprintf("%s/%d", name, m.task)
+	case confirmPage:
+		m.title, m.subtitle = "Confirm workflow", "Review the entire plan before starting · ↑↓ scroll"
+		content = m.confirmation()
 	case repositoryPage:
 		t := m.selectedTask()
 		m.title = "Repository: " + config.DisplayText(m.repositoryName())
@@ -178,9 +181,10 @@ func (m *Model) refresh() {
 	case historyPage, runPage:
 		content, detail, identity = m.historyInspection()
 	case helpPage:
-		m.title, m.subtitle = "Keyboard help", "Browse and inspect · no execution or configuration editing"
+		m.title, m.subtitle = "Keyboard help", "Browse, inspect, and start configured workflows"
 		content = section("Navigation", "Tab / Shift+Tab    next / previous tab\n← → / h l          previous / next tab\n↑ ↓ / k j          select an item or scroll\nEnter              open selection\nEsc                back\n?                  toggle help\nq / Ctrl+C         exit") +
 			"\n\n" + section("Inspector", "Wide terminals show a list beside its details.\nPage Up/Down (b/f) scrolls the detail pane.\nEnter opens the next level; Esc returns.\nNarrow terminals show one level at a time.") +
+			"\n\n" + section("Workflow runs", "In Workflows, s reviews the selected workflow; y confirms.\nEsc cancels confirmation. q / Ctrl+C cancels an active run and waits.\nOnly one TUI run at a time; busy workflows are not queued.\nBorg output is not shown; use the CLI for diagnostics.") +
 			"\n\n" + section("Configuration", "y opens workflow, repository, or full configuration YAML.\nr reloads the selected file into this TUI only.\nA failed reload keeps the previous snapshot.\nNo automatic rereads. No live agent controls.") +
 			"\n\n" + section("Archives", "/ edits a literal, case-sensitive file path search.\nEnter scans the whole archive, not just retained rows.\nEsc cancels a scan when leaving its list.\nBrowsing may open credentials and contact repositories.\nListings retain at most 1,000 rows / 8 MiB.\nLossy display paths are never exact restore selectors.") +
 			"\n\n" + section("History", "g rereads local history; no automatic refresh.\nOnly run summaries and task totals are retained.\nIncomplete does not mean active.\nOwner and lock evidence is momentary, not live agent state.\nConfiguration identities do not reveal content differences.") +

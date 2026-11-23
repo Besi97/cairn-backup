@@ -32,6 +32,13 @@ stages and tasks. Select a task and press Enter to follow its repository referen
 `y` opens the workflow or repository YAML; Esc returns. Page Up/Down or `b`/`f`
 scroll long details.
 
+Press `s` on a workflow to review its prepared stages, then `y` to start or
+Esc to cancel. Prune and compact are included when configured. Only one
+TUI-started workflow runs at a time; an already-running workflow is not queued.
+The interface shows a running state and a basic outcome, but does not retain Borg
+output; use the CLI when diagnostics are needed. Quitting with `q` or Ctrl+C cancels a TUI-started
+run and waits for it to stop. Other runs and the agent are unaffected.
+
 The YAML is a sanitized, normalized snapshot of the validated input, not a
 verbatim file or a dump of resolved runtime defaults. Relative paths remain as
 configured. Comments and anchors are omitted, inline passphrases and embedded
@@ -41,8 +48,8 @@ are never opened for display.
 
 Press `r` to reread and validate only the selected path. A successful reload
 replaces the TUI snapshot; failure retains the previous one and shows a safe
-error without rejected values. There are no automatic rereads, edits, or operation
-controls. Reloading the TUI does **not** reload or restart an agent: its startup
+error without rejected values. There are no automatic rereads, configuration edits,
+or individual operation controls. Reloading the TUI does **not** reload or restart an agent: its startup
 snapshot is separate, and the TUI does not observe its status.
 
 No Borg installation or network access is needed. Checking does not open

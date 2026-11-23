@@ -1,16 +1,18 @@
-// Package tui provides Cairn's read-only terminal interface.
+// Package tui provides Cairn's terminal interface.
 package tui
 
 import (
 	"context"
 	"io"
 	"slices"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"github.com/Besi97/cairn-backup/cli/internal/archive"
 	"github.com/Besi97/cairn-backup/cli/internal/config"
+	"github.com/Besi97/cairn-backup/cli/internal/workflow"
 )
 
 type page int
@@ -31,10 +33,10 @@ const (
 	runPage
 	taskPage
 	archiveDetailPage
+	confirmPage
 )
 
 // Model owns navigation and a validated TUI snapshot, separate from any agent.
-// It only reads configuration, archive metadata and local history.
 type Model struct {
 	selected       *config.Config
 	page           page
@@ -57,6 +59,11 @@ type Model struct {
 	status         string
 	browser        *archiveBrowser
 	history        *historyBrowser
+	runs           *manualRunner
+	prepared       *workflow.Manual
+	confirmFrom    page
+	exiting        bool
+	interrupted    bool
 }
 
 // New opens Home with an already validated configuration.
@@ -66,7 +73,7 @@ func New(selected *config.Config) Model {
 	details := viewport.New()
 	details.SoftWrap = true
 	return Model{selected: selected, keys: newKeyMap(), body: body, details: details,
-		browser: newArchiveBrowser(), history: newHistoryBrowser()}
+		browser: newArchiveBrowser(), history: newHistoryBrowser(), runs: newManualRunner()}
 }
 
 // Run uses only the supplied streams and leaves signal ownership with the CLI.
@@ -74,8 +81,10 @@ func Run(ctx context.Context, input io.Reader, output io.Writer, selected *confi
 	model := New(selected)
 	model.browser.ctx = ctx
 	model.history.ctx = ctx
+	model.runs.ctx = ctx
 	defer model.browser.close()
 	defer model.history.close()
+	defer model.runs.close()
 	_, err := tea.NewProgram(model, tea.WithContext(ctx),
 		tea.WithInput(input), tea.WithOutput(output), tea.WithoutSignalHandler()).Run()
 	return err
@@ -85,6 +94,17 @@ func (m Model) Init() tea.Cmd { return nil }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case manualDone:
+		m.runs.active = false
+		m.runs.message = msg.message
+		if m.exiting {
+			if m.interrupted {
+				return m, tea.Interrupt
+			}
+			return m, tea.Quit
+		}
+		m.refresh()
+		return m, nil
 	case scanUpdate:
 		return m.updateScan(msg)
 	case historyUpdate:
@@ -98,6 +118,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		return m, nil
 	case tea.KeyPressMsg:
+		if m.exiting {
+			return m, nil
+		}
+		if m.page == confirmPage {
+			switch {
+			case key.Matches(msg, m.keys.Interrupt), key.Matches(msg, m.keys.Quit):
+				m.prepared = nil
+				m.browser.stop()
+				m.history.stop()
+				if key.Matches(msg, m.keys.Interrupt) {
+					return m, tea.Interrupt
+				}
+				return m, tea.Quit
+			case key.Matches(msg, m.keys.Back):
+				m.prepared, m.page = nil, m.confirmFrom
+				return m.changed()
+			case msg.Code == 'y':
+				cmd := m.runs.start(*m.prepared)
+				m.prepared, m.page = nil, m.confirmFrom
+				m.refresh()
+				return m, cmd
+			}
+			var cmd tea.Cmd
+			m.body, cmd = m.body.Update(msg)
+			return m, cmd
+		}
 		if m.browser.editing && !key.Matches(msg, m.keys.Interrupt) {
 			return m.editSearch(msg)
 		}
@@ -113,11 +159,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Interrupt):
 			m.browser.stop()
 			m.history.stop()
+			if m.runs.active {
+				m.exiting, m.interrupted = true, true
+				m.runs.cancel()
+				m.refresh()
+				return m, nil
+			}
 			return m, tea.Interrupt
 		case key.Matches(msg, m.keys.Quit):
 			m.browser.stop()
 			m.history.stop()
+			if m.runs.active {
+				m.exiting = true
+				m.runs.cancel()
+				m.refresh()
+				return m, nil
+			}
 			return m, tea.Quit
+		case (m.page == workflowsPage || m.page == workflowPage) && msg.Code == 's':
+			if m.runs.active || m.reloading || m.workflowName() == "" {
+				return m, nil
+			}
+			manual, err := workflow.PrepareManual(m.selected, m.workflowName(), time.Now())
+			if err != nil {
+				m.status = "Cannot prepare workflow. Check the configuration and local lock state."
+				m.refresh()
+				return m, nil
+			}
+			m.prepared, m.confirmFrom, m.page = &manual, m.page, confirmPage
+			return m.changed()
 		case (m.page == historyPage || m.page == runPage) && key.Matches(msg, m.keys.Refresh):
 			return m.startHistory()
 		case key.Matches(msg, m.keys.Reload):
