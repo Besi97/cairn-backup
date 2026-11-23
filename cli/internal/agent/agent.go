@@ -14,6 +14,7 @@ import (
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
 	"github.com/Besi97/cairn-backup/cli/internal/config"
 	"github.com/Besi97/cairn-backup/cli/internal/lifecycle"
+	"github.com/Besi97/cairn-backup/cli/internal/metrics"
 	"github.com/Besi97/cairn-backup/cli/internal/runlock"
 	"github.com/Besi97/cairn-backup/cli/internal/schedule"
 	"github.com/Besi97/cairn-backup/cli/internal/workflow"
@@ -95,6 +96,20 @@ func (a *Agent) Run(ctx context.Context, stdout, stderr io.Writer) error {
 	shared := workflow.NewOutput(out, diagnostics)
 	report := func(format string, args ...any) {
 		fmt.Fprintf(shared, "%s agent: %s\n", a.clock.Now().UTC().Format(time.RFC3339Nano), fmt.Sprintf(format, args...))
+	}
+	if a.selected.Metrics != nil {
+		names := make([]string, 0, len(a.selected.Workflows))
+		for name := range a.selected.Workflows {
+			names = append(names, name)
+		}
+		collector, err := metrics.New(identity.Digest(), names)
+		if err != nil {
+			report("metrics collector failed: %v", err)
+		} else {
+			workCtx = lifecycle.WithAdditionalObserver(workCtx, collector.Observe)
+			stopMetrics := serveMetrics(a.selected.Metrics.Listen, collector, report)
+			defer stopMetrics()
+		}
 	}
 	execute := a.execute
 	if execute == nil {

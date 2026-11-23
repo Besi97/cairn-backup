@@ -5,8 +5,12 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
+
+	"github.com/Besi97/cairn-backup/cli/internal/metrics"
 
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
 	"go.yaml.in/yaml/v4"
@@ -19,9 +23,14 @@ type Config struct {
 	Version      int                   `json:"version"`
 	Repositories map[string]Repository `json:"repositories"`
 	Workflows    map[string]Workflow   `json:"workflows"`
+	Metrics      *Metrics              `json:"metrics"`
 	Path         string                `json:"-"`
 	Directory    string                `json:"-"`
 	display      *yaml.Node
+}
+
+type Metrics struct {
+	Listen string `json:"listen"`
 }
 
 type Repository struct {
@@ -117,6 +126,20 @@ func Load(options Options) (*Config, error) {
 	if err := json.Unmarshal(encoded, &result); err != nil {
 		// Never surface encoding/json errors: they may include secret values.
 		return nil, fmt.Errorf("%s: numeric value outside supported integer range", path)
+	}
+	if result.Metrics != nil {
+		host, port, err := net.SplitHostPort(result.Metrics.Listen)
+		n, portErr := strconv.Atoi(port)
+		if err != nil || net.ParseIP(host) == nil || portErr != nil || n < 1 || n > 65535 {
+			return nil, diagnostic(path, doc, []string{"metrics", "listen"}, "must be an explicit IP address and port")
+		}
+		names := make([]string, 0, len(result.Workflows))
+		for name := range result.Workflows {
+			names = append(names, name)
+		}
+		if _, err := metrics.New("validation", names); err != nil {
+			return nil, diagnostic(path, doc, []string{"workflows"}, "metrics supports at most 256 workflow names of at most 256 UTF-8 bytes")
+		}
 	}
 	result.Path, result.Directory = path, filepath.Dir(path)
 	if err := result.resolve(options.Home, doc); err != nil {

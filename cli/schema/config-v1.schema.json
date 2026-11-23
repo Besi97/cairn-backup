@@ -12,6 +12,14 @@
       "const": 1,
       "description": "Required configuration schema version; never inferred."
     },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["listen"],
+      "properties": {
+        "listen": { "$ref": "#/$defs/nonemptyString", "description": "Explicit IP address and port for the optional agent Prometheus endpoint." }
+      }
+    },
     "repositories": {
       "type": "object",
       "description": "Named existing Borg repositories. An empty map is allowed.",
