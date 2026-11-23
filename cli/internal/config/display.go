@@ -8,7 +8,7 @@ import (
 	"strings"
 	"unicode"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // DisplayText escapes terminal controls in configuration-derived text.

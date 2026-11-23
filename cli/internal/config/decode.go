@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // Node conversion is bounded even for recursive or exponentially shared aliases.

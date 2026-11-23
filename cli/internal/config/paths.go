@@ -11,7 +11,7 @@ import (
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
 	"github.com/Besi97/cairn-backup/cli/internal/prune"
 	"github.com/Besi97/cairn-backup/cli/internal/schedule"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 func localPath(value, base, home string) (string, error) {

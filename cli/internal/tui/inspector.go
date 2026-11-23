@@ -7,7 +7,7 @@ import (
 
 	"github.com/Besi97/cairn-backup/cli/internal/config"
 	"github.com/charmbracelet/x/ansi"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 type inspectionItem struct {
