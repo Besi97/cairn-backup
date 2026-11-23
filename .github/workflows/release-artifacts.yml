@@ -27,7 +27,7 @@ jobs:
         run: |
           make release VERSION="$RELEASE_VERSION" OUT_DIR=dist
           ./scripts/test-release.sh dist "$RELEASE_VERSION"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: cairn-${{ inputs.version }}
           path: cli/dist/*
