@@ -1,0 +1,8 @@
+*
+!cli/
+!cli/**
+cli/bin/
+cli/dist/
+!tests/
+!tests/container/
+!tests/container/server.sh
