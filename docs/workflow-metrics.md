@@ -1,5 +1,29 @@
 # Workflow metrics collection
 
+The collector currently exposes an internal Go API, not a metrics endpoint.
+An optional Prometheus endpoint is planned separately in [#153](https://github.com/Besi97/cairn-backup/issues/153);
+the field names below are not Prometheus metric names.
+
+## Available observations
+
+`Snapshot()` returns one `Workflow` per configured name:
+
+| Fields | Observation |
+| --- | --- |
+| `Name` | Configured workflow name. |
+| `Success`, `Warning`, `Failure`, `Interrupted`, `Skipped` | Locally observed terminal events by outcome since collector creation. |
+| `Busy` | Locally observed busy rejections since collector creation; also counted by outcome. |
+| `InFlight`, `InFlightKnown` | Locally observed active runs; when unknown, the count is a lower bound. |
+| `LastOutcome`, `LastFinished` | Latest observed or retained terminal outcome and time; empty outcome and zero time mean none is known. |
+| `LastDuration`, `DurationKnown` | Duration of that latest terminal, when its start is known and timestamps are consistent. |
+| `LastSuccess`, `SuccessKnown` | Latest observed or retained successful workflow completion, when known; not backup freshness. |
+
+The snapshot also has `HistoryAvailable`, indicating whether retained history
+could be read. Observations exclude previews and are scoped to the collector's
+configuration and names. Details and limitations follow.
+
+## Scope and limitations
+
 `internal/metrics.New(configID, names)` fixes up to 256 distinct, nonempty
 configured workflow names (each at most 256 UTF-8 bytes). Pass the configuration's
 `runlock.Identity.Digest()` and attach `collector.Observe` with
@@ -24,7 +48,8 @@ starts observed by this collector that have not had a matching observed terminal
 event; they say nothing about other processes or runs already in progress when
 observation began. At most 1024 starts are tracked; after overflow the affected
 workflow's `InFlightKnown` stays false and its value is only a lower bound until
-the collector is replaced. Missing events can also make observations incomplete.
+the collector is replaced. A start without a run ID has the same effect. Missing
+events can also make observations incomplete.
 
 Latest outcome, finish and duration combine locally observed terminals with the
 newest matching retained terminal, excluding previews. Duration is unknown when
@@ -42,8 +67,5 @@ missing store is available and empty. History and live observations are not an
 atomic cross-process snapshot. Restart retains only what history still contains.
 No lifetime counters are derived from history.
 
-No overdue metric is defined: a threshold might be a fixed per-workflow maximum
-age, derived from schedule and grace, or an external alert policy. A choice must
-also specify unscheduled workflows, missed runs, clock changes, and unknown
-freshness. Until that policy is agreed, consumers should not infer overdue from
-an undocumented threshold.
+No overdue metric, Cairn flag, or per-workflow threshold is defined. Use external
+alert rules for overdue policy, accounting for unknown workflow freshness.
