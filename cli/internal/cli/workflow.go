@@ -67,17 +67,18 @@ func newWorkflowCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			plan, err := workflow.Prepare(selected, args[0], time.Now())
+			manual, err := workflow.PrepareManual(selected, args[0], time.Now())
 			if err != nil {
+				var identityErr *workflow.IdentityError
+				if errors.As(err, &identityErr) {
+					return &exitError{code: exitFailure, err: identityErr.Err}
+				}
 				return err
 			}
-			identity, err := runlock.Config(selected.Path)
-			if err != nil {
-				return &exitError{code: exitFailure, err: err}
-			}
-			result, runErr := (workflow.Executor{
+			result, runErr := manual.Run(cmd.Context(), workflow.Executor{
 				Stdout: cmd.OutOrStdout(), Stderr: cmd.ErrOrStderr(),
-			}).RunLocked(cmd.Context(), identity, plan)
+			})
+			plan := manual.Plan
 			if errors.Is(runErr, runlock.ErrBusy) {
 				return &exitError{code: exitFailure, err: fmt.Errorf("workflow %q is already running", plan.Name)}
 			}
