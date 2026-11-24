@@ -1,0 +1,39 @@
+services:
+  cairn:
+    image: ${CAIRN_IMAGE:?Set CAIRN_IMAGE to a published Cairn image}
+    command: ["agent", "run", "--config", "/etc/cairn/config.yaml"]
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 5m
+    environment:
+      BORG_HOST_ID: cairn-compose
+      XDG_RUNTIME_DIR: ""
+    volumes:
+      - type: bind
+        source: ./config.yaml
+        target: /etc/cairn/config.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./source
+        target: /source
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./repository
+        target: /repository
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./home
+        target: /home/cairn
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./secrets
+        target: /run/cairn-secrets
+        read_only: true
+        bind:
+          create_host_path: false

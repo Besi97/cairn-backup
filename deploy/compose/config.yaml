@@ -1,0 +1,18 @@
+version: 1
+
+repositories:
+  local:
+    location: /repository/borg
+    passphrase_file: /run/cairn-secrets/borg-passphrase
+
+workflows:
+  nightly:
+    cron: "0 2 * * *"
+    timezone: UTC
+    stages:
+      - tasks:
+          - type: backup
+            repository: local
+            archive_prefix: documents
+            source_root: /source
+            sources: ["."]
