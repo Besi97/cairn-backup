@@ -139,10 +139,14 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [regular, distroless]
     steps:
       - uses: actions/download-artifact@v8
         with:
-          pattern: digest-*
+          pattern: digest-${{ matrix.variant }}-*
           path: digests
       - uses: docker/setup-buildx-action@v4
       - name: Log in to GHCR
@@ -151,23 +155,25 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Publish manifests
+      - name: Publish manifest
         env:
           REPOSITORY: ${{ github.repository }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
+          VARIANT: ${{ matrix.variant }}
         run: |
           if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.]+)?$ ]] || (( ${#RELEASE_TAG} > 106 )); then
             echo "Invalid release tag" >&2
             exit 1
           fi
           image="ghcr.io/${REPOSITORY,,}"
-          for variant in regular distroless; do
-            for arch in amd64 arm64; do
-              digest=$(cat "digests/digest-$variant-$arch/digest.txt")
-              [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
-            done
+          for arch in amd64 arm64; do
+            digest=$(cat "digests/digest-$VARIANT-$arch/digest.txt")
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
           done
-          docker buildx imagetools create -t "$image:$RELEASE_TAG" \
-            "$image@$(cat digests/digest-regular-amd64/digest.txt)" "$image@$(cat digests/digest-regular-arm64/digest.txt)"
-          docker buildx imagetools create -t "$image:distroless-$RELEASE_TAG" \
-            "$image@$(cat digests/digest-distroless-amd64/digest.txt)" "$image@$(cat digests/digest-distroless-arm64/digest.txt)"
+          tag="$RELEASE_TAG"
+          if [[ "$VARIANT" == distroless ]]; then
+            tag="distroless-$RELEASE_TAG"
+          fi
+          docker buildx imagetools create -t "$image:$tag" \
+            "$image@$(cat "digests/digest-$VARIANT-amd64/digest.txt")" \
+            "$image@$(cat "digests/digest-$VARIANT-arm64/digest.txt")"
