@@ -52,9 +52,7 @@ instructions. You can keep the optional setup material beside the binary or use
 the installer to place it under `/usr/local/share/cairn`.
 
 Maintainers can build the two archives and `SHA256SUMS` with
-`make -C cli release VERSION=0.1.0`. The manually triggered Release artifacts
-workflow builds the same files as a downloadable workflow artifact; it does not
-publish a GitHub Release or create a tag.
+`make -C cli release VERSION=0.1.0`.
 
 ## Upgrade and remove
 
