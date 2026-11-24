@@ -52,3 +52,128 @@ jobs:
             "cli/dist/cairn_${RELEASE_VERSION}_linux_amd64.tar.gz" \
             "cli/dist/cairn_${RELEASE_VERSION}_linux_arm64.tar.gz" \
             cli/dist/SHA256SUMS
+
+  images:
+    name: Build and publish ${{ matrix.variant }} / ${{ matrix.platform.arch }}
+    runs-on: ${{ matrix.platform.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [regular, distroless]
+        platform:
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+      - name: Validate image version
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.]+)?$ ]] || (( ${#RELEASE_TAG} > 106 )); then
+            echo "Expected a release tag such as v0.1.0 or v0.1.0-rc.1" >&2
+            exit 1
+          fi
+          echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+      - name: Build image
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ARCH: ${{ matrix.platform.arch }}
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          docker build --platform "linux/$ARCH" --target "$VARIANT" \
+            --build-arg "VERSION=$VERSION" -t "cairn-release:$VARIANT-$ARCH" .
+      - name: Verify image
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ARCH: ${{ matrix.platform.arch }}
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          image="cairn-release:$VARIANT-$ARCH"
+          [[ "$(docker image inspect "$image" --format '{{.Os}}/{{.Architecture}}')" == "linux/$ARCH" ]]
+          actual=$(docker run --rm --network none "$image" --version)
+          if [[ "$actual" != "cairn $VERSION" ]]; then
+            echo "Unexpected version in $image: $actual" >&2
+            exit 1
+          fi
+          docker run --rm --network none --entrypoint /usr/bin/borg "$image" --version
+          docker run --rm --network none --entrypoint /usr/bin/ssh "$image" -V
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push verified image
+        env:
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          ARCH: ${{ matrix.platform.arch }}
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          image="ghcr.io/${REPOSITORY,,}"
+          tag="$image:arch-$RELEASE_TAG-$VARIANT-$ARCH"
+          docker tag "cairn-release:$VARIANT-$ARCH" "$tag"
+          docker push "$tag" | tee push.log
+          mapfile -t digests < <(sed -nE 's/^.*digest: (sha256:[0-9a-f]{64}) size: [0-9]+$/\1/p' push.log)
+          if (( ${#digests[@]} != 1 )); then
+            echo "Expected one digest from docker push" >&2
+            exit 1
+          fi
+          printf '%s\n' "${digests[0]}" > digest.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: digest-${{ matrix.variant }}-${{ matrix.platform.arch }}
+          path: digest.txt
+          if-no-files-found: error
+          retention-days: 1
+
+  publish-manifests:
+    needs: images
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [regular, distroless]
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: digest-${{ matrix.variant }}-*
+          path: digests
+      - uses: docker/setup-buildx-action@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish manifest
+        env:
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.]+)?$ ]] || (( ${#RELEASE_TAG} > 106 )); then
+            echo "Invalid release tag" >&2
+            exit 1
+          fi
+          image="ghcr.io/${REPOSITORY,,}"
+          for arch in amd64 arm64; do
+            digest=$(cat "digests/digest-$VARIANT-$arch/digest.txt")
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          done
+          tag="$RELEASE_TAG"
+          if [[ "$VARIANT" == distroless ]]; then
+            tag="distroless-$RELEASE_TAG"
+          fi
+          docker buildx imagetools create -t "$image:$tag" \
+            "$image@$(cat "digests/digest-$VARIANT-amd64/digest.txt")" \
+            "$image@$(cat "digests/digest-$VARIANT-arm64/digest.txt")"
