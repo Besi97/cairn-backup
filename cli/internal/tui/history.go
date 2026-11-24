@@ -16,6 +16,8 @@ type historyUpdate struct {
 	err  error
 }
 
+type historyRefresh struct{ job *historyJob }
+
 type historyJob struct {
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -113,6 +115,21 @@ func (m Model) startHistory() (tea.Model, tea.Cmd) {
 	cmd := m.history.start()
 	m.refresh()
 	return m, cmd
+}
+
+func (m Model) refreshHistoryAfterRun() (tea.Model, tea.Cmd) {
+	b := m.history
+	b.stop()
+	b.attempted = false
+	if b.job == nil {
+		return m.startHistory()
+	}
+	job := b.job
+	m.refresh()
+	return m, func() tea.Msg {
+		<-job.done
+		return historyRefresh{job: job}
+	}
 }
 
 func (m Model) updateHistory(update historyUpdate) (tea.Model, tea.Cmd) {

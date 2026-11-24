@@ -142,7 +142,7 @@ func (m Model) fileDetail() string {
 
 func (m *Model) historyInspection() (content, detail, identity string) {
 	b := m.history
-	m.title, m.subtitle = "History", fmt.Sprintf("%d retained · newest last event first · no automatic refresh", len(b.runs))
+	m.title, m.subtitle = "History", fmt.Sprintf("%d retained · newest last event first · g refresh", len(b.runs))
 	m.notice = "Incomplete ≠ active · recorded outcomes are separate from momentary execution evidence"
 	if !b.at.IsZero() {
 		m.subtitle = "Snapshot inspected: " + recordedTime(&b.at) + " · g refresh"

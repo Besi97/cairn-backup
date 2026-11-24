@@ -152,6 +152,11 @@ func (m *Model) refresh() {
 	case confirmPage:
 		m.title, m.subtitle = "Confirm workflow", "Review the entire plan before starting · ↑↓ scroll"
 		content = m.confirmation()
+	case progressPage:
+		m.title, m.subtitle = "Workflow progress", m.runs.name
+		content = section("Latest update", m.runs.message) +
+			"\n\nEsc returns to browsing. Press p to return here.\nq / Ctrl+C quits and cancels an active run, waiting for cleanup." +
+			"\n\nBorg output is not shown; use History for the outcome."
 	case repositoryPage:
 		t := m.selectedTask()
 		m.title = "Repository: " + config.DisplayText(m.repositoryName())
@@ -184,10 +189,10 @@ func (m *Model) refresh() {
 		m.title, m.subtitle = "Keyboard help", "Browse, inspect, and start configured workflows"
 		content = section("Navigation", "Tab / Shift+Tab    next / previous tab\n← → / h l          previous / next tab\n↑ ↓ / k j          select an item or scroll\nEnter              open selection\nEsc                back\n?                  toggle help\nq / Ctrl+C         exit") +
 			"\n\n" + section("Inspector", "Wide terminals show a list beside its details.\nPage Up/Down (b/f) scrolls the detail pane.\nEnter opens the next level; Esc returns.\nNarrow terminals show one level at a time.") +
-			"\n\n" + section("Workflow runs", "In Workflows, s reviews the selected workflow; y confirms.\nEsc cancels confirmation. q / Ctrl+C cancels an active run and waits.\nOnly one TUI run at a time; busy workflows are not queued.\nBorg output is not shown; use the CLI for diagnostics.") +
+			"\n\n" + section("Workflow runs", "In Workflows, s reviews the selected workflow; y confirms.\nEsc leaves progress running; p returns to progress.\nEsc cancels confirmation. q / Ctrl+C cancels an active run and waits.\nOnly one TUI run at a time; busy workflows are not queued.\nBorg output is not shown; use the CLI for diagnostics.") +
 			"\n\n" + section("Configuration", "y opens workflow, repository, or full configuration YAML.\nr reloads the selected file into this TUI only.\nA failed reload keeps the previous snapshot.\nNo automatic rereads. No live agent controls.") +
 			"\n\n" + section("Archives", "/ edits a literal, case-sensitive file path search.\nEnter scans the whole archive, not just retained rows.\nEsc cancels a scan when leaving its list.\nBrowsing may open credentials and contact repositories.\nListings retain at most 1,000 rows / 8 MiB.\nLossy display paths are never exact restore selectors.") +
-			"\n\n" + section("History", "g rereads local history; no automatic refresh.\nOnly run summaries and task totals are retained.\nIncomplete does not mean active.\nOwner and lock evidence is momentary, not live agent state.\nConfiguration identities do not reveal content differences.") +
+			"\n\n" + section("History", "g rereads local history; TUI-started runs refresh it on completion.\nOnly run summaries and task totals are retained.\nIncomplete does not mean active.\nOwner and lock evidence is momentary, not live agent state.\nConfiguration identities do not reveal content differences.") +
 			"\n\nClosing this interface does not stop the agent or unrelated runs."
 	}
 	if m.page != yamlPage {

@@ -28,7 +28,7 @@ type Workflow struct {
 	LastFinished  time.Time
 	LastDuration  time.Duration
 	DurationKnown bool
-	// LastSuccess is a retained successful workflow completion, not backup age.
+	// LastSuccess is the latest known successful workflow completion.
 	LastSuccess  time.Time
 	SuccessKnown bool
 }
