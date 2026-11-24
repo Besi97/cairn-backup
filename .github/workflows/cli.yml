@@ -42,22 +42,12 @@ jobs:
         run: tests/systemd/run.sh
 
   container:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Test container images
-        run: tests/container/run.sh
-
-  container-smoke:
-    if: github.event_name == 'pull_request'
-    name: Container smoke ${{ matrix.variant }} / ${{ matrix.platform.arch }}
+    name: Container images / ${{ matrix.platform.arch }}
     runs-on: ${{ matrix.platform.runner }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        variant: [regular, distroless]
         platform:
           - { arch: amd64, runner: ubuntu-24.04 }
           - { arch: arm64, runner: ubuntu-24.04-arm }
@@ -65,21 +55,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - name: Build image
+      - name: Test container images
         env:
           ARCH: ${{ matrix.platform.arch }}
-          VARIANT: ${{ matrix.variant }}
-        run: |
-          docker build --platform "linux/$ARCH" --target "$VARIANT" \
-            --build-arg VERSION=0.0.0-ci -t cairn-smoke .
-      - name: Verify image
-        env:
-          ARCH: ${{ matrix.platform.arch }}
-        run: |
-          [[ "$(docker image inspect cairn-smoke --format '{{.Os}}/{{.Architecture}}')" == "linux/$ARCH" ]]
-          [[ "$(docker run --rm --network none cairn-smoke --version)" == "cairn 0.0.0-ci" ]]
-          docker run --rm --network none --entrypoint /usr/bin/borg cairn-smoke --version
-          docker run --rm --network none --entrypoint /usr/bin/ssh cairn-smoke -V
+        run: tests/container/run.sh "$ARCH"
 
   borg-integration:
     runs-on: ubuntu-latest
