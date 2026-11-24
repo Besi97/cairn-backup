@@ -1,0 +1,35 @@
+name: Release artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version without the v prefix (for example 0.1.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+      - name: Build and verify release archives
+        working-directory: cli
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          make release VERSION="$RELEASE_VERSION" OUT_DIR=dist
+          ./scripts/test-release.sh dist "$RELEASE_VERSION"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: cairn-${{ inputs.version }}
+          path: cli/dist/*
+          if-no-files-found: error
+          retention-days: 30
