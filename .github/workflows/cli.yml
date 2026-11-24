@@ -42,12 +42,23 @@ jobs:
         run: tests/systemd/run.sh
 
   container:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    name: Container images / ${{ matrix.platform.arch }}
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - name: Test container images
-        run: tests/container/run.sh
+        env:
+          ARCH: ${{ matrix.platform.arch }}
+        run: tests/container/run.sh "$ARCH"
 
   borg-integration:
     runs-on: ubuntu-latest

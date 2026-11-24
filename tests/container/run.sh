@@ -14,8 +14,15 @@ cleanup() {
     docker image rm "$id-server" "$id-regular" "$id-distroless" >/dev/null 2>&1 || :
 }
 trap cleanup EXIT HUP INT TERM
-docker build --target regular -t "$id-regular" .
-docker build --target distroless -t "$id-distroless" .
+arch="${1:-}"
+version=0.0.0-ci
+if [ -n "$arch" ]; then
+    set -- --platform "linux/$arch"
+else
+    set --
+fi
+docker build "$@" --build-arg "VERSION=$version" --target regular -t "$id-regular" .
+docker build "$@" --build-arg "VERSION=$version" --target distroless -t "$id-distroless" .
 docker build --build-arg "IMAGE=$id-regular" -f tests/container/server.Dockerfile -t "$id-server" .
 docker network create "$network" >/dev/null
 docker volume create "$data" >/dev/null
@@ -36,6 +43,10 @@ for variant in regular distroless; do
             -v "$source:/source:ro" -v "$sshvol:/home/cairn/.ssh:ro" "$@"
     }
     test "$(docker image inspect --format '{{.Config.User}}' "$image")" = 10001:10001
+    if [ -n "$arch" ]; then
+        test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")" = "linux/$arch"
+    fi
+    test "$(docker run --rm --network none "$image" --version)" = "cairn $version"
     run --entrypoint borg "$image" --version
     run --entrypoint ssh "$image" -V
     run --entrypoint borg "$image" init --encryption=none "/data/$variant-local"

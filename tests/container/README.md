@@ -9,6 +9,7 @@ used by the test containers. The helper SSH server runs as root; Cairn does not.
 The test removes its own containers, volumes, network, and images.
 
 The test can run against a remote daemon and does not require host bind mounts.
-Run it with a rootless Docker context to verify that engine; the default CI job
-does not. It does not test shutdown during an active backup, bind-mount UID
-mapping, arm64, or external SSH servers.
+Pass `amd64` or `arm64` as an argument to select and check the image architecture.
+CI runs both on native runners. Run it with a rootless Docker context to verify
+that engine; CI does not. It does not test shutdown during an active backup,
+bind-mount UID mapping, or external SSH servers.
