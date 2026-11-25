@@ -195,15 +195,16 @@ Warnings/failures do not cancel siblings or trigger retries.
 ```yaml
 type: command
 program: /usr/local/bin/prepare-backup
-args: ["--target", "data"]
-timeout_seconds: 300
+args: ["--target", "data"] # optional
+timeout_seconds: 600 # optional; defaults to 300 (5 minutes)
 ```
 
 `program` is an executable name (looked up in Cairn's PATH) or path; `args` is
-a required list of literal strings (which may be empty). No shell, expansion, or interpolation is
+an optional list of literal strings. Omitted or empty `args` means no arguments. No shell, expansion, or interpolation is
 performed. The working directory is the configuration directory, stdin is closed,
-and the process inherits Cairn's environment and permissions. The required
-timeout is 1–9223372036 seconds (the maximum representable duration). Exit 0
+and the process inherits Cairn's environment and permissions. The timeout defaults
+to 300 seconds (5 minutes); `timeout_seconds` overrides it with a value from
+1–9223372036 seconds (the maximum representable duration). Exit 0
 succeeds; every nonzero exit, signal, startup error, or timeout fails the task
 and prevents later stages. Workflow cancellation
 interrupts the task. Cairn stops the owned process group on exit or cancellation,

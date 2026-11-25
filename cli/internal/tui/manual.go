@@ -135,7 +135,7 @@ func (m Model) confirmation() string {
 		rows = append(rows, heading(fmt.Sprintf("Stage %d", i+1)))
 		for j, task := range stage {
 			if task.Command != nil {
-				rows = append(rows, fmt.Sprintf("  %d. command (trusted executable)", j+1))
+				rows = append(rows, fmt.Sprintf("  %d. command (trusted executable; timeout %s)", j+1, task.Command.Timeout))
 			} else {
 				rows = append(rows, fmt.Sprintf("  %d. %s → %s", j+1, config.DisplayText(task.Type), config.DisplayText(task.Repository)))
 			}

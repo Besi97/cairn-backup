@@ -40,6 +40,39 @@ func TestConfiguredCommandWorkflow(t *testing.T) {
 	}
 }
 
+func TestConfiguredCommandDefaults(t *testing.T) {
+	for _, fields := range []string{"", ", args: []", ", timeout_seconds: 42"} {
+		t.Run(fields, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "config.yaml")
+			text := "version: 1\nrepositories: {}\nworkflows:\n  test:\n    stages:\n      - tasks:\n          - {type: command, program: /bin/true" + fields + "}\n"
+			if err := os.WriteFile(path, []byte(text), 0600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := config.Load(config.Options{Path: path, Explicit: true, Directory: dir})
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan, err := Prepare(cfg, "test", time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := 5 * time.Minute
+			if strings.Contains(fields, "timeout_seconds") {
+				want = 42 * time.Second
+			}
+			command := plan.Stages[0][0].Command
+			if command.Timeout != want || len(command.Args) != 0 {
+				t.Fatalf("command = %+v", command)
+			}
+			result, err := (Executor{}).Run(context.Background(), plan)
+			if err != nil || result.Outcome != borg.Success {
+				t.Fatalf("result = %+v, err = %v", result, err)
+			}
+		})
+	}
+}
+
 func TestCommandHelper(t *testing.T) {
 	if os.Getenv("CAIRN_COMMAND_HELPER") != "1" {
 		return

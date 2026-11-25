@@ -52,8 +52,10 @@ func TestInvalidConfigurations(t *testing.T) {
 		{"check selector", withTask("{type: check, repository: local, archive_prefix: docs}"), "unknown"},
 		{"check negative wait", withTask("{type: check, repository: local, lock_wait: -1}"), "/lock_wait"},
 		{"command empty program", withTask("{type: command, program: '', args: [], timeout_seconds: 1}"), "/program"},
-		{"command missing args", withTask("{type: command, program: /bin/true, timeout_seconds: 1}"), "missing required"},
 		{"command zero timeout", withTask("{type: command, program: /bin/true, args: [], timeout_seconds: 0}"), "/timeout_seconds"},
+		{"command negative timeout", withTask("{type: command, program: /bin/true, timeout_seconds: -1}"), "/timeout_seconds"},
+		{"command null args", withTask("{type: command, program: /bin/true, args: null}"), "/args"},
+		{"command null timeout", withTask("{type: command, program: /bin/true, timeout_seconds: null}"), "/timeout_seconds"},
 		{"command overflow timeout", withTask("{type: command, program: /bin/true, args: [], timeout_seconds: 9223372037}"), "/timeout_seconds"},
 		{"command repository", withTask("{type: command, program: /bin/true, args: [], timeout_seconds: 1, repository: local}"), "unknown"},
 	} {
@@ -61,6 +63,28 @@ func TestInvalidConfigurations(t *testing.T) {
 			_, err := loadText(t, tt.text)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("error = %v; want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestCommandOptionalArgumentsAndTimeout(t *testing.T) {
+	for _, tt := range []struct {
+		task    string
+		timeout int
+	}{
+		{"{type: command, program: /bin/true}", 300},
+		{"{type: command, program: /bin/true, args: []}", 300},
+		{"{type: command, program: /bin/true, timeout_seconds: 42}", 42},
+	} {
+		t.Run(tt.task, func(t *testing.T) {
+			cfg, err := loadText(t, withTask(tt.task))
+			if err != nil {
+				t.Fatal(err)
+			}
+			task := firstTask(cfg)
+			if len(task.Args) != 0 || task.TimeoutSeconds != tt.timeout {
+				t.Fatalf("task = %#v", task)
 			}
 		})
 	}

@@ -56,12 +56,16 @@ func Prepare(selected *config.Config, name string, now time.Time) (Plan, error) 
 		tasks := make([]Task, 0, len(stage.Tasks))
 		for j, task := range stage.Tasks {
 			if task.Type == "command" {
-				if task.TimeoutSeconds <= 0 || int64(task.TimeoutSeconds) > int64(math.MaxInt64)/int64(time.Second) {
+				timeout := task.TimeoutSeconds
+				if timeout == 0 {
+					timeout = config.DefaultCommandTimeoutSeconds
+				}
+				if timeout < 0 || int64(timeout) > int64(math.MaxInt64)/int64(time.Second) {
 					return Plan{}, fmt.Errorf("stage %d task %d: invalid command timeout", i+1, j+1)
 				}
 				tasks = append(tasks, Task{Type: task.Type, Scope: "trusted executable command", Command: &Command{
 					Program: task.Program, Args: append([]string(nil), task.Args...), Dir: selected.Directory,
-					Timeout: time.Duration(task.TimeoutSeconds) * time.Second,
+					Timeout: time.Duration(timeout) * time.Second,
 				}})
 				continue
 			}

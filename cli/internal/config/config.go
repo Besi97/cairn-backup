@@ -163,6 +163,9 @@ func Environment() (Options, error) {
 	return Options{Directory: dir, Home: home, XDGHome: os.Getenv("XDG_CONFIG_HOME")}, nil
 }
 
+// DefaultCommandTimeoutSeconds is the timeout for commands without an override.
+const DefaultCommandTimeoutSeconds = 300
+
 func defaultLockWait(task *Task) {
 	if task.LockWait == nil {
 		value := borg.DefaultLockWait
