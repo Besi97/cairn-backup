@@ -3,12 +3,60 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
 
 	"github.com/Besi97/cairn-backup/cli/internal/cancellation"
 )
+
+type failMatchingWriter struct {
+	dst   io.Writer
+	match string
+}
+
+func (w failMatchingWriter) Write(p []byte) (int, error) {
+	if strings.Contains(string(p), w.match) {
+		return 0, errors.New("selected output failure")
+	}
+	return w.dst.Write(p)
+}
+
+func TestCancellationWithOutputFailure(t *testing.T) {
+	for _, stream := range []string{"summary", "flush"} {
+		t.Run(stream, func(t *testing.T) {
+			fakeBorgEnvironment(t)
+			t.Setenv("XDG_STATE_HOME", t.TempDir())
+			base := filepath.Join(t.TempDir(), "ready")
+			t.Setenv("FAKE_TREE", base)
+			if stream == "flush" {
+				t.Setenv("FAKE_SIGNAL_PARTIAL_UTF8", "yes")
+			}
+			ctx, cancel := context.WithCancelCause(t.Context())
+			defer cancel(nil)
+			var stdout, stderr bytes.Buffer
+			var out, diagnostic io.Writer = &stdout, &stderr
+			if stream == "summary" {
+				out = failMatchingWriter{&stdout, "interrupted"}
+			} else {
+				diagnostic = failMatchingWriter{&stderr, "�"}
+			}
+			done := make(chan int, 1)
+			go func() { done <- Run(ctx, []string{"compact", "--repository=repo"}, out, diagnostic, "test") }()
+			awaitFile(t, base+".parent")
+			awaitFile(t, base+".child")
+			cancel(cancellation.Signal(syscall.SIGTERM))
+			code := <-done
+			if code != 143 || !strings.Contains(stderr.String(), "Interrupted:") || !strings.Contains(stderr.String(), "selected output failure") {
+				t.Fatalf("code = %d, stdout = %q, stderr = %q", code, &stdout, &stderr)
+			}
+		})
+	}
+}
 
 func TestRun(t *testing.T) {
 	tests := []struct {
@@ -57,6 +105,67 @@ func TestRun(t *testing.T) {
 				if strings.Count(stderr.String(), "Error:") != 1 {
 					t.Errorf("expected one error diagnostic: %q", &stderr)
 				}
+			}
+		})
+	}
+}
+
+type cancelOnText struct {
+	dst    io.Writer
+	text   string
+	cancel context.CancelFunc
+}
+
+func (w cancelOnText) Write(p []byte) (int, error) {
+	if strings.Contains(string(p), w.text) {
+		w.cancel()
+	}
+	return w.dst.Write(p)
+}
+
+func TestSingleOperationCancellationDuringCleanup(t *testing.T) {
+	fakeBorgEnvironment(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	for _, tc := range []struct {
+		exit string
+		code int
+	}{{"0", 0}, {"1", 1}, {"2", 2}, {"130", 130}} {
+		t.Run(tc.exit, func(t *testing.T) {
+			t.Setenv("FAKE_TREE", filepath.Join(t.TempDir(), "ready"))
+			t.Setenv("FAKE_PARENT_EXIT", "yes")
+			t.Setenv("FAKE_SIGNAL_OUTPUT", "yes")
+			t.Setenv("FAKE_EXIT", tc.exit)
+			ctx, cancel := context.WithCancelCause(t.Context())
+			defer cancel(nil)
+			var stdout, stderr bytes.Buffer
+			writer := cancelOnText{&stderr, "child stopped", func() { cancel(cancellation.Signal(syscall.SIGTERM)) }}
+			code := Run(ctx, []string{"compact", "--repository=repo"}, &stdout, writer, "test")
+			if ctx.Err() == nil || code != tc.code || strings.Contains(stderr.String(), "Interrupted:") {
+				t.Fatalf("code = %d, context = %v, stdout = %q, stderr = %q", code, ctx.Err(), &stdout, &stderr)
+			}
+		})
+	}
+}
+
+func TestArchiveCancellationDuringCleanup(t *testing.T) {
+	path := archiveBorgEnvironment(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	if err := os.WriteFile(path, []byte(`{"archives":[]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		exit string
+		code int
+	}{{"0", 0}, {"1", 1}, {"2", 2}, {"130", 130}} {
+		t.Run(tc.exit, func(t *testing.T) {
+			t.Setenv("LIST_BORG_READY", filepath.Join(t.TempDir(), "ready"))
+			t.Setenv("LIST_BORG_EXIT", tc.exit)
+			ctx, cancel := context.WithCancelCause(t.Context())
+			defer cancel(nil)
+			var stdout, stderr bytes.Buffer
+			code := Run(ctx, []string{"archive", "list", "--repository=repo"}, &stdout, cancelOnText{&stderr, "cleanup signal", func() { cancel(cancellation.Signal(syscall.SIGTERM)) }}, "test")
+			if ctx.Err() == nil || code != tc.code || strings.Contains(stderr.String(), "Interrupted:") {
+				t.Fatalf("code = %d, context = %v, stdout = %q, stderr = %q", code, ctx.Err(), &stdout, &stderr)
 			}
 		})
 	}

@@ -45,9 +45,14 @@ func runOperation(cmd *cobra.Command, request borg.Request, operation, status, p
 	flushErr := diagnostics.Flush()
 	output.FinishTask(display.TaskID{Run: runID, Task: 1})
 	if err := errors.Join(flushErr, output.Err()); err != nil {
-		result.Outcome = borg.Failure
-		runErr = errors.Join(runErr, err)
+		if result.Outcome == borg.Interrupted && borg.IsCancellation(runErr) {
+			runErr = errors.Join(runErr, &borg.SecondaryError{Err: err})
+		} else {
+			result.Outcome = borg.Failure
+			runErr = errors.Join(runErr, err)
+		}
 	}
+	recordBorgResult(cmd.Context(), result, runErr)
 	outcome = lifecycle.FromBorg(result.Outcome)
 	code, renderedOutcome := exitFailure, "failed"
 	switch result.Outcome {
@@ -63,6 +68,9 @@ func runOperation(cmd *cobra.Command, request borg.Request, operation, status, p
 		suffix = "; " + previewResult + "."
 	}
 	if _, err := fmt.Fprintf(output.Writer(true, ""), "%s %s%s\n", operation, renderedOutcome, suffix); err != nil {
+		if result.Outcome == borg.Interrupted && borg.IsCancellation(runErr) {
+			return &exitError{code: code, err: errors.Join(runErr, &borg.SecondaryError{Err: err})}
+		}
 		outcome = lifecycle.Failure
 		return &exitError{code: exitFailure, err: err}
 	}

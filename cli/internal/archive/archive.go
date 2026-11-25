@@ -77,7 +77,8 @@ func prepare(options Options, invocationDir, name string, inspect bool) (borg.Re
 
 // List calls emit serially, with backpressure, before Borg finishes. No records
 // are retained. Previously emitted records remain partial until Run succeeds or
-// completes with warnings. A callback error stops Borg and is an execution failure.
+// completes with warnings. A callback error stops Borg and is an execution
+// failure unless an earlier parent cancellation selected the interruption.
 func List(ctx context.Context, runner borg.Runner, request borg.Request, emit func(Archive) error) (borg.Result, error) {
 	return stream(ctx, runner, request, func(r io.Reader) error {
 		return decodeArchives(r, func(entry Archive) error {
@@ -102,15 +103,18 @@ func Inspect(ctx context.Context, runner borg.Runner, request borg.Request, emit
 }
 
 func stream(ctx context.Context, runner borg.Runner, request borg.Request, decode func(io.Reader) error) (borg.Result, error) {
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	runCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	// Distinguish decoder-initiated cancellation from parent cancellation, even
+	// if the parent is cancelled later while Borg is shutting down.
+	decodeStopped := errors.New("listing decoder stopped")
 	reader, writer := io.Pipe()
 	done := make(chan error, 1)
 	go func() {
 		err := decode(reader)
 		_ = reader.CloseWithError(err)
 		if err != nil {
-			cancel()
+			cancel(decodeStopped)
 		}
 		done <- err
 	}()
@@ -118,11 +122,13 @@ func stream(ctx context.Context, runner borg.Runner, request borg.Request, decod
 	result, runErr := runner.Run(runCtx, request)
 	_ = writer.Close()
 	decodeErr := <-done
-	if ctx.Err() != nil {
-		result.Outcome = borg.Interrupted
-		return result, errors.Join(ctx.Err(), runErr)
-	}
 	if decodeErr != nil {
+		if result.Outcome == borg.Interrupted && borg.IsCancellation(runErr) && context.Cause(runCtx) != decodeStopped {
+			if decodeErr == io.EOF {
+				return result, runErr
+			}
+			return result, errors.Join(runErr, &borg.SecondaryError{Err: fmt.Errorf("read Borg listing: %w", decodeErr)})
+		}
 		if runErr != nil && (decodeErr == io.EOF || decodeErr == io.ErrUnexpectedEOF) {
 			return result, runErr
 		}

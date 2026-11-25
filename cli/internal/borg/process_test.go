@@ -45,6 +45,10 @@ func TestProcessGroupCancellation(t *testing.T) {
 					if !errors.Is(err, context.Canceled) {
 						t.Fatalf("error = %v", err)
 					}
+					var secondary *SecondaryError
+					if errors.As(err, &secondary) {
+						t.Fatalf("signal termination reported as secondary error: %v", err)
+					}
 				case <-time.After(5 * time.Second):
 					t.Fatal("cancellation hung")
 				}
@@ -65,6 +69,54 @@ func TestProcessGroupCancellation(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestCancellationRetainsWaitDelay(t *testing.T) {
+	ready := filepath.Join(t.TempDir(), "ready")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	cmd := exec.Command("sh", "-c", `trap 'exit 0' TERM; setsid sh -c 'echo ready > "$1"; sleep 1' sh "$1" & while :; do sleep 0.01; done`, "sh", ready)
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	done := make(chan error, 1)
+	go func() { done <- runProcess(ctx, cmd, 50*time.Millisecond) }()
+	awaitFile(t, ready)
+	cancel()
+	select {
+	case err := <-done:
+		var secondary *SecondaryError
+		if !IsCancellation(err) || !errors.Is(err, context.Canceled) || !errors.Is(err, exec.ErrWaitDelay) || !errors.As(err, &secondary) {
+			t.Fatalf("lost wait delay after cancellation: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancellation hung")
+	}
+}
+
+type errorWriter struct{ err error }
+
+func (w errorWriter) Write([]byte) (int, error) { return 0, w.err }
+
+func TestCancellationRetainsWaitOutputError(t *testing.T) {
+	ready := filepath.Join(t.TempDir(), "ready")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	cmd := exec.Command("sh", "-c", `trap 'echo cleanup; exit 0' TERM; echo ready > "$1"; while :; do sleep 0.01; done`, "sh", ready)
+	writeErr := errors.New("output failed")
+	cmd.Stdout = errorWriter{writeErr}
+	done := make(chan error, 1)
+	go func() { done <- runProcess(ctx, cmd, 100*time.Millisecond) }()
+	awaitFile(t, ready)
+	cancel()
+	select {
+	case err := <-done:
+		var secondary *SecondaryError
+		if !IsCancellation(err) || !errors.Is(err, context.Canceled) || !errors.Is(err, writeErr) || !errors.As(err, &secondary) {
+			t.Fatalf("lost output error after cancellation: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancellation hung")
 	}
 }
 
@@ -128,6 +180,34 @@ func (w cancelWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+type cancelErrorWriter struct{ cancel context.CancelFunc }
+
+func (w cancelErrorWriter) Write([]byte) (int, error) {
+	w.cancel()
+	return 0, context.Canceled
+}
+
+func TestWriterCancellationAfterLeaderExit(t *testing.T) {
+	for _, separated := range []bool{false, true} {
+		t.Run(strconv.FormatBool(separated), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			req := request()
+			req.Env["FAKE_TREE"] = filepath.Join(t.TempDir(), "ready")
+			req.Env["FAKE_PARENT_EXIT"], req.Env["FAKE_SIGNAL_OUTPUT"] = "yes", "yes"
+			if separated {
+				req.Stdout = cancelErrorWriter{cancel}
+			} else {
+				req.Diagnostics = cancelErrorWriter{cancel}
+			}
+			result, err := (Runner{Executable: fakeBorg}).Run(ctx, req)
+			if ctx.Err() == nil || result.Outcome != Failure || !errors.Is(err, context.Canceled) {
+				t.Fatalf("result = %+v, error = %v, context = %v", result, err, ctx.Err())
+			}
+		})
+	}
+}
+
 func TestCancellationRacesWithCompletion(t *testing.T) {
 	for range 20 {
 		ctx, cancel := context.WithCancel(t.Context())
@@ -135,9 +215,39 @@ func TestCancellationRacesWithCompletion(t *testing.T) {
 		req.Diagnostics = cancelWriter{cancel}
 		result, err := (Runner{Executable: fakeBorg}).Run(ctx, req)
 		cancel()
-		if result.Outcome != Interrupted || !errors.Is(err, context.Canceled) {
-			t.Fatalf("canceled operation reported %+v, %v", result, err)
+		if !(result.Outcome == Interrupted && errors.Is(err, context.Canceled)) &&
+			!(result.Outcome == Success && err == nil) {
+			t.Fatalf("racing operation reported %+v, %v", result, err)
 		}
+	}
+}
+
+func TestCancellationDuringCleanup(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		code    string
+		outcome Outcome
+		wantErr bool
+	}{
+		{"success", "0", Success, false},
+		{"warning", "1", Warning, false},
+		{"failure", "2", Failure, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			req := request()
+			req.Env["FAKE_TREE"] = filepath.Join(t.TempDir(), "ready")
+			req.Env["FAKE_PARENT_EXIT"], req.Env["FAKE_SIGNAL_OUTPUT"] = "yes", "yes"
+			req.Env["FAKE_EXIT"] = tc.code
+			// The child writes only after cleanup signals it, which can happen
+			// only after the runner has observed the leader's exit.
+			req.Diagnostics = cancelWriter{cancel}
+			result, err := (Runner{Executable: fakeBorg}).Run(ctx, req)
+			if ctx.Err() == nil || result.Outcome != tc.outcome || (err != nil) != tc.wantErr || errors.Is(err, context.Canceled) {
+				t.Fatalf("result = %+v, error = %v, context = %v", result, err, ctx.Err())
+			}
+		})
 	}
 }
 

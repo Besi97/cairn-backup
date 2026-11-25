@@ -98,6 +98,7 @@ func newArchiveListingCommand(inspect bool) *cobra.Command {
 					return err
 				})
 			}
+			recordBorgResult(cmd.Context(), result, err)
 			switch result.Outcome {
 			case borg.Success:
 				return nil

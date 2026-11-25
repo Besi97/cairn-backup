@@ -59,12 +59,25 @@ type Runner struct {
 	InheritedFiles []*os.File
 }
 
+// IsCancellation reports whether process cancellation, rather than leader exit
+// or an output error with the same identity, determined the runner result.
+func IsCancellation(err error) bool {
+	var canceled *processCanceled
+	return errors.As(err, &canceled)
+}
+
+// SecondaryError identifies an error reported alongside a selected cancellation.
+type SecondaryError struct{ Err error }
+
+func (e *SecondaryError) Error() string { return e.Err.Error() }
+func (e *SecondaryError) Unwrap() error { return e.Err }
+
 // Run checks compatibility before executing an operation. Warnings are completed
 // operations and return a nil error. Failures and interruptions return an error.
 func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	failed := Result{Outcome: Failure, ExitCode: -1}
 	if err := ctx.Err(); err != nil {
-		return Result{Outcome: Interrupted, ExitCode: -1}, err
+		return Result{Outcome: Interrupted, ExitCode: -1}, &processCanceled{err}
 	}
 	if len(req.Args) == 0 {
 		return failed, errors.New("missing Borg operation arguments")
@@ -93,10 +106,11 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	var version cappedOutput
 	probe.Stdout, probe.Stderr = &version, &version
 	if err := runProcess(ctx, probe, shutdownGrace); err != nil {
-		if ctx.Err() != nil {
+		var canceled *processCanceled
+		if errors.As(err, &canceled) {
 			result := processResult(probe)
 			result.Outcome = Interrupted
-			return result, errors.Join(ctx.Err(), err)
+			return result, err
 		}
 		return failed, fmt.Errorf("check Borg version: %w", err)
 	}
@@ -141,10 +155,18 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	if logs != nil {
 		logErr = errors.Join(plain.flush(), logs.flush())
 	}
-	if ctx.Err() != nil && err != nil {
+	var canceled *processCanceled
+	if errors.As(err, &canceled) {
 		result := processResult(cmd)
 		result.Outcome = Interrupted
-		return result, errors.Join(ctx.Err(), err)
+		var outputErr error
+		if stdout != nil {
+			outputErr = stdout.Err()
+		}
+		if secondary := errors.Join(logErr, output.Err(), outputErr); secondary != nil {
+			err = errors.Join(err, &SecondaryError{Err: secondary})
+		}
+		return result, err
 	}
 	if stdout != nil && stdout.Err() != nil {
 		result := processResult(cmd)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/Besi97/cairn-backup/cli/internal/borg"
 	"github.com/Besi97/cairn-backup/cli/internal/cancellation"
 	"github.com/Besi97/cairn-backup/cli/internal/display"
 	"github.com/Besi97/cairn-backup/cli/internal/lifecycle"
@@ -37,8 +38,20 @@ func (e *exitError) Error() string {
 
 func (e *exitError) Unwrap() error { return e.err }
 
+type invocationResultKey struct{}
+
+// Single Borg operations decide their outcome before returning to Cobra. Other
+// commands, including multi-step workflows, retain invocation-level cancellation.
+func recordBorgResult(ctx context.Context, result borg.Result, err error) {
+	if completed, ok := ctx.Value(invocationResultKey{}).(*bool); ok {
+		*completed = result.Outcome != borg.Interrupted || !borg.IsCancellation(err)
+	}
+}
+
 // Run executes one invocation with isolated arguments and output streams.
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version string) int {
+	completed := false
+	ctx = context.WithValue(ctx, invocationResultKey{}, &completed)
 	ctx, diagnostics := display.WithDiagnosticSink(ctx, stderr)
 	history := &historyRecorder{warn: func() {
 		fmt.Fprintln(diagnostics, "Warning: local run history unavailable; records may be incomplete. Operation outcomes are unchanged.")
@@ -59,8 +72,12 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version s
 		return 128 + int(cancellation.From(ctx))
 	}
 	err := cmd.ExecuteContext(ctx)
-	if ctx.Err() != nil {
+	if ctx.Err() != nil && !completed {
 		fmt.Fprintf(stderr, "Interrupted: %v\n", context.Cause(ctx))
+		var secondary *borg.SecondaryError
+		if errors.Is(err, borg.ErrProcessGroupNotStopped) || errors.As(err, &secondary) {
+			fmt.Fprintf(stderr, "Error: %v\n", err)
+		}
 		return 128 + int(cancellation.From(ctx))
 	}
 	if err != nil {

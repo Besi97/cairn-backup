@@ -31,7 +31,7 @@ func RunOwnedProcess(ctx context.Context, cmd *exec.Cmd) error {
 // orphan descendants are reaped by their ancestor or the system's init process.
 func runProcess(ctx context.Context, cmd *exec.Cmd, grace time.Duration) error {
 	if err := ctx.Err(); err != nil {
-		return err
+		return &processCanceled{err}
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	// Detached descendants are outside group ownership; do not let inherited
@@ -46,6 +46,8 @@ func runProcess(ctx context.Context, cmd *exec.Cmd, grace time.Duration) error {
 	var cancelErr error
 	signal := syscall.SIGTERM
 	observed := false
+	// Whichever event is selected first determines the result. If both are
+	// ready, either may win; cancellation during subsequent cleanup is ignored.
 	select {
 	case waitErr = <-exited:
 		observed = true
@@ -63,7 +65,19 @@ func runProcess(ctx context.Context, cmd *exec.Cmd, grace time.Duration) error {
 	}
 	err := cmd.Wait()
 	if cancelErr != nil {
-		return errors.Join(cancelErr, cleanupErr, waitErr)
+		// A signal sent during cleanup is an expected consequence of cancellation,
+		// but wait failures such as an undrained output pipe must remain visible.
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			if status, ok := exit.Sys().(syscall.WaitStatus); ok && status.Signaled() &&
+				(status.Signal() == signal || status.Signal() == syscall.SIGKILL) {
+				err = nil
+			}
+		}
+		if err != nil {
+			err = &SecondaryError{Err: err}
+		}
+		return &processCanceled{errors.Join(cancelErr, cleanupErr, waitErr, err)}
 	}
 	if cleanupErr != nil || waitErr != nil {
 		return &lifecycleError{errors.Join(err, cleanupErr, waitErr)}
@@ -75,6 +89,11 @@ func runProcess(ctx context.Context, cmd *exec.Cmd, grace time.Duration) error {
 type lifecycleError struct{ error }
 
 func (e *lifecycleError) Unwrap() error { return e.error }
+
+// processCanceled records the selected event, not merely an error's identity.
+type processCanceled struct{ error }
+
+func (e *processCanceled) Unwrap() error { return e.error }
 
 func awaitLeader(pid int) error {
 	for {
