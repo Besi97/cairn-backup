@@ -133,6 +133,11 @@ func TestRealBorgRestore(t *testing.T) {
 					t.Fatalf("ACL=%x error=%v", value[:max(0, n)], err)
 				}
 			}
+			// The encrypted case covers the remaining selection and overwrite
+			// scenarios; an unencrypted full restore already exercises access.
+			if encryption == "none" {
+				return
+			}
 			// A single hardlink slave must restore its contents even without its master.
 			selected := []string{"archive", "restore", "--repository=repo", "--archive-name=snapshot", "--destination=selected", "--passphrase-file=passphrase", "tree/hardlink"}
 			run(append(append([]string(nil), selected...), "--dry-run"), 0)
