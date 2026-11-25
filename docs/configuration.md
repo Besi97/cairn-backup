@@ -210,8 +210,10 @@ interrupts the task. Cairn stops the owned process group on exit or cancellation
 escalating to SIGKILL after its grace period; detached descendants are not owned.
 
 Standard output and error are streamed in labelled chunks to their respective
-streams; a partial line may receive multiple labels. Output is not stored in
-history and may contain sensitive data. Command arguments are visible in
+streams. Partial chunks are displayed promptly as separate labelled lines, so
+a single program line can span multiple display lines. Incomplete UTF-8 bytes
+wait for the next chunk; an incomplete sequence at EOF is replaced. Output is
+not stored in history and may contain sensitive data. Command arguments are visible in
 configuration browsing and may be visible to other local
 processes. Do not put secrets in arguments or print them. Configuration is trusted
 code: anyone able to change it can run arbitrary programs as Cairn, including

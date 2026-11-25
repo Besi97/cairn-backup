@@ -321,10 +321,12 @@ func runCommand(ctx context.Context, runner OperationRunner, output *Output, att
 	if r, ok := runner.(borg.Runner); ok {
 		cmd.ExtraFiles = r.InheritedFiles
 	}
-	cmd.Stdout = output.Writer(true, display.Label("command stdout", attribution))
-	cmd.Stderr = output.Writer(false, display.Label("command stderr", attribution))
+	stdout := output.Writer(true, display.Label("command stdout", attribution))
+	stderr := output.Writer(false, display.Label("command stderr", attribution))
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	err := borg.RunOwnedProcess(childCtx, cmd)
-	outputErr := output.Err()
+	outputErr := errors.Join(stdout.Flush(), stderr.Flush(), output.Err())
 	if cmd.ProcessState != nil {
 		result.ExitCode = cmd.ProcessState.ExitCode()
 		if status, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && status.Signaled() {
