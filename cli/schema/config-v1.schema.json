@@ -108,8 +108,20 @@
         { "$ref": "#/$defs/pruneTask" },
         { "$ref": "#/$defs/compactTask" },
         { "$ref": "#/$defs/checkTask" },
-        { "$ref": "#/$defs/recoveryCheckTask" }
+        { "$ref": "#/$defs/recoveryCheckTask" },
+        { "$ref": "#/$defs/commandTask" }
       ]
+    },
+    "commandTask": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "program"],
+      "properties": {
+        "type": { "const": "command" },
+        "program": { "$ref": "#/$defs/nonemptyString", "description": "Executable name or path." },
+        "args": { "type": "array", "items": { "type": "string" }, "description": "Optional literal arguments, without shell interpretation; defaults to no arguments." },
+        "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 9223372036, "default": 300, "description": "Command timeout in seconds; defaults to 300 (5 minutes)." }
+      }
     },
     "recoveryCheckTask": {
       "type": "object",

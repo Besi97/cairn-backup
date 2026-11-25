@@ -95,11 +95,14 @@ func (m Model) taskDetail() string {
 	if t.stage == 0 {
 		return "No tasks configured."
 	}
-	return section(fmt.Sprintf("Stage %d / Task %d", t.stage, t.task),
+	detail := section(fmt.Sprintf("Stage %d / Task %d", t.stage, t.task),
 		field("Operation", config.DisplayText(t.Type))) +
 		"\n\n" + section("Task settings", m.configuredFields("workflows", m.workflowName(), "stages",
-		strconv.Itoa(t.stage-1), "tasks", strconv.Itoa(t.task-1))) +
-		"\n\n" + m.repositoryInfo(t.Repository)
+		strconv.Itoa(t.stage-1), "tasks", strconv.Itoa(t.task-1)))
+	if t.Repository != "" {
+		detail += "\n\n" + m.repositoryInfo(t.Repository)
+	}
+	return detail
 }
 
 func (m Model) repositoryInfo(name string) string {
@@ -143,8 +146,12 @@ func (m *Model) refresh() {
 		m.title, m.subtitle = "Workflow: "+config.DisplayText(name), strings.ReplaceAll(m.schedule(m.selected.Workflows[name]), "\n", " · ")
 		var items []inspectionItem
 		for _, t := range m.tasks() {
+			label := fmt.Sprintf("Task %d: %s", t.task, config.DisplayText(t.Type))
+			if t.Repository != "" {
+				label += " → " + config.DisplayText(t.Repository)
+			}
 			items = append(items, inspectionItem{
-				fmt.Sprintf("Task %d: %s → %s", t.task, config.DisplayText(t.Type), config.DisplayText(t.Repository)),
+				label,
 				mutedStyle.Render(fmt.Sprintf("Stage %d", t.stage))})
 		}
 		content = m.itemList(items, m.task, "No tasks configured.")

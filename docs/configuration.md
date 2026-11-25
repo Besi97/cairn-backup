@@ -137,8 +137,8 @@ A workflow has:
 - Required `stages`: a nonempty ordered list of objects.
 
 Each stage has only `tasks`, a nonempty list of task objects. Stages and tasks
-have no names or IDs. Each task has a required `type` and `repository`; the
-repository value references a key in `repositories`, not a repository location.
+have no names or IDs. Each task has a required `type`; Borg tasks also require
+`repository`, which references a key in `repositories`, not a repository location.
 
 Tasks run concurrently within a stage. Wait for all tasks before evaluating the
 stage result. Any warning or failure prevents subsequent stages from starting,
@@ -189,6 +189,37 @@ workflow. A Borg child interrupted independently of Cairn is a task failure, wit
 its signal retained in diagnostics. SIGINT/SIGTERM cancellation of Cairn stops
 active tasks, waits for owned subprocess cleanup, and exits `130`/`143`.
 Warnings/failures do not cancel siblings or trigger retries.
+
+### Executable commands
+
+```yaml
+type: command
+program: /usr/local/bin/prepare-backup
+args: ["--target", "data"] # optional
+timeout_seconds: 600 # optional; defaults to 300 (5 minutes)
+```
+
+`program` is an executable name (looked up in Cairn's PATH) or path; `args` is
+an optional list of literal strings. Omitted or empty `args` means no arguments. No shell, expansion, or interpolation is
+performed. The working directory is the configuration directory, stdin is closed,
+and the process inherits Cairn's environment and permissions. The timeout defaults
+to 300 seconds (5 minutes); `timeout_seconds` overrides it with a value from
+1–9223372036 seconds (the maximum representable duration). Exit 0
+succeeds; every nonzero exit, signal, startup error, or timeout fails the task
+and prevents later stages. Workflow cancellation
+interrupts the task. Cairn stops the owned process group on exit or cancellation,
+escalating to SIGKILL after its grace period; detached descendants are not owned.
+
+Standard output and error are streamed in labelled chunks to their respective
+streams. Partial chunks are displayed promptly as separate labelled lines, so
+a single program line can span multiple display lines. Incomplete UTF-8 bytes
+wait for the next chunk; an incomplete sequence at EOF is replaced. Output is
+not stored in history and may contain sensitive data. Command arguments are visible in
+configuration browsing and may be visible to other local
+processes. Do not put secrets in arguments or print them. Configuration is trusted
+code: anyone able to change it can run arbitrary programs as Cairn, including
+through scheduled workflows. Restrict write access and review configuration before
+running it. Containers may not include the executable.
 
 Cross-process workflow overlap protection rejects a duplicate manual invocation
 with exit code `2`, without waiting or starting Borg. Manual runs start immediately

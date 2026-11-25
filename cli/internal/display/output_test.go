@@ -150,6 +150,98 @@ func TestConcurrentSplitDiagnosticsKeepAttribution(t *testing.T) {
 	}
 }
 
+func TestPartialChunksArePromptAndSeparatelyFramed(t *testing.T) {
+	var combined bytes.Buffer
+	output := NewOutput(&combined, &combined)
+	first := output.Writer(true, "first: ")
+	second := output.Writer(false, "second: ")
+	for _, step := range []struct {
+		writer io.Writer
+		text   string
+		want   string
+	}{
+		{first, "prompt> ", "first: prompt> \n"},
+		{second, "other\n", "first: prompt> \nsecond: other\n"},
+		{first, "continued\nnext", "first: prompt> \nsecond: other\nfirst: continued\nfirst: next\n"},
+	} {
+		if _, err := io.WriteString(step.writer, step.text); err != nil {
+			t.Fatal(err)
+		}
+		if combined.String() != step.want {
+			t.Fatalf("got %q, want %q", combined.String(), step.want)
+		}
+	}
+}
+
+func TestPartialChunkDoesNotJoinTerminalBoard(t *testing.T) {
+	output, _, stderr := terminalOutput(t)
+	output.Observe(taskEvent("run", "daily", 1))
+	start := stderr.Len()
+	if _, err := io.WriteString(output.Writer(false, "command: "), "prompt"); err != nil {
+		t.Fatal(err)
+	}
+	want := "\x1b[1A\r\x1b[Jcommand: prompt\ncairn [daily 1.1 backup/local] running\n"
+	if got := stderr.String()[start:]; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestSplitUTF8AndIncompleteSuffix(t *testing.T) {
+	var combined bytes.Buffer
+	output := NewOutput(&combined, &combined)
+	first := output.Writer(true, "first: ")
+	second := output.Writer(false, "second: ")
+	for _, step := range []struct {
+		writer io.Writer
+		data   []byte
+	}{
+		{first, []byte("caf\xc3")},
+		{second, []byte("other\n")},
+		{first, []byte("\xa9 \xe2")},
+		{first, []byte("\x82")},
+		{first, []byte("\xac\n")},
+		{first, []byte("\xf0\x9f")},
+	} {
+		if _, err := step.writer.Write(step.data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := first.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	want := "first: caf\nsecond: other\nfirst: é \nfirst: €\nfirst: ��\n"
+	if combined.String() != want {
+		t.Fatalf("got %q, want %q", combined.String(), want)
+	}
+}
+
+func TestConcurrentPartialChunksStaySeparate(t *testing.T) {
+	var combined bytes.Buffer
+	output := NewOutput(&combined, &combined)
+	var workers sync.WaitGroup
+	for i := range 20 {
+		workers.Go(func() {
+			writer := output.Writer(i%2 == 0, fmt.Sprintf("task-%d: ", i))
+			for range 10 {
+				if _, err := io.WriteString(writer, "partial"); err != nil {
+					t.Error(err)
+				}
+			}
+		})
+	}
+	workers.Wait()
+	lines := strings.Split(strings.TrimSuffix(combined.String(), "\n"), "\n")
+	if len(lines) != 200 {
+		t.Fatalf("got %d lines, want 200", len(lines))
+	}
+	for _, line := range lines {
+		var task int
+		if _, err := fmt.Sscanf(line, "task-%d: partial", &task); err != nil || line != fmt.Sprintf("task-%d: partial", task) {
+			t.Fatalf("mixed output: %q", line)
+		}
+	}
+}
+
 func TestSmallTerminalFallsBackAndBoardClipsUntrustedProgress(t *testing.T) {
 	output, _, stderr := terminalOutput(t)
 	if err := pty.Setsize(stderr.file, &pty.Winsize{Rows: 4, Cols: 40}); err != nil {

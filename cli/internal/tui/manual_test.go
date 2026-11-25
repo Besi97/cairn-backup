@@ -45,6 +45,20 @@ func manualModel(t *testing.T) Model {
 	return m
 }
 
+func TestCommandConfirmationShowsEffectiveTimeout(t *testing.T) {
+	m := manualModel(t)
+	m.prepared = &workflow.Manual{Plan: workflow.Plan{Stages: [][]workflow.Task{{
+		{Command: &workflow.Command{Timeout: 5 * time.Minute}},
+		{Command: &workflow.Command{Timeout: 42 * time.Second}},
+	}}}}
+	text := m.confirmation()
+	for _, want := range []string{"timeout 5m0s", "timeout 42s"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q in %q", want, text)
+		}
+	}
+}
+
 func TestManualConfirmationAndCancellation(t *testing.T) {
 	m := manualModel(t)
 	started := make(chan string, 1)

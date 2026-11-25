@@ -51,6 +51,13 @@ func TestInvalidConfigurations(t *testing.T) {
 		{"check repair", withTask("{type: check, repository: local, repair: true}"), "unknown"},
 		{"check selector", withTask("{type: check, repository: local, archive_prefix: docs}"), "unknown"},
 		{"check negative wait", withTask("{type: check, repository: local, lock_wait: -1}"), "/lock_wait"},
+		{"command empty program", withTask("{type: command, program: '', args: [], timeout_seconds: 1}"), "/program"},
+		{"command zero timeout", withTask("{type: command, program: /bin/true, args: [], timeout_seconds: 0}"), "/timeout_seconds"},
+		{"command negative timeout", withTask("{type: command, program: /bin/true, timeout_seconds: -1}"), "/timeout_seconds"},
+		{"command null args", withTask("{type: command, program: /bin/true, args: null}"), "/args"},
+		{"command null timeout", withTask("{type: command, program: /bin/true, timeout_seconds: null}"), "/timeout_seconds"},
+		{"command overflow timeout", withTask("{type: command, program: /bin/true, args: [], timeout_seconds: 9223372037}"), "/timeout_seconds"},
+		{"command repository", withTask("{type: command, program: /bin/true, args: [], timeout_seconds: 1, repository: local}"), "unknown"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := loadText(t, tt.text)
@@ -58,6 +65,48 @@ func TestInvalidConfigurations(t *testing.T) {
 				t.Fatalf("error = %v; want %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestCommandOptionalArgumentsAndTimeout(t *testing.T) {
+	for _, tt := range []struct {
+		task    string
+		timeout int
+	}{
+		{"{type: command, program: /bin/true}", 300},
+		{"{type: command, program: /bin/true, args: []}", 300},
+		{"{type: command, program: /bin/true, timeout_seconds: 42}", 42},
+	} {
+		t.Run(tt.task, func(t *testing.T) {
+			cfg, err := loadText(t, withTask(tt.task))
+			if err != nil {
+				t.Fatal(err)
+			}
+			task := firstTask(cfg)
+			if len(task.Args) != 0 || task.TimeoutSeconds != tt.timeout {
+				t.Fatalf("task = %#v", task)
+			}
+		})
+	}
+}
+
+func TestCommandWithoutRepository(t *testing.T) {
+	cfg, err := loadText(t, "version: 1\nrepositories: {}\nworkflows:\n  test:\n    stages:\n      - tasks:\n          - {type: command, program: /bin/echo, args: ['a b', '$(literal)', ''], timeout_seconds: 10}\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := cfg.Workflows["test"].Stages[0].Tasks[0]
+	if task.Program != "/bin/echo" || len(task.Args) != 3 || task.Args[1] != "$(literal)" || task.LockWait != nil {
+		t.Fatalf("unexpected task: %#v", task)
+	}
+}
+
+func TestCommandLongTimeoutAndExecutableNames(t *testing.T) {
+	for _, program := range []string{"echo", "./echo", "/bin/echo"} {
+		_, err := loadText(t, withTask("{type: command, program: "+program+", args: [], timeout_seconds: 9223372036}"))
+		if err != nil {
+			t.Fatalf("%s: %v", program, err)
+		}
 	}
 }
 

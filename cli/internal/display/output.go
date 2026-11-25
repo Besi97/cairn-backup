@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
 	"github.com/Besi97/cairn-backup/cli/internal/lifecycle"
@@ -39,10 +40,12 @@ type Output struct {
 	terminal       bool
 	rows           int
 	active         map[TaskID]activeTask
+	diagnostics    *labelledWriter
 }
 
 func NewOutput(stdout, stderr io.Writer) *Output {
 	o := &Output{stdout: stdout, stderr: stderr, active: make(map[TaskID]activeTask)}
+	o.diagnostics = o.Writer(false, "")
 	if fd, ok := stderr.(interface{ Fd() uintptr }); ok {
 		o.fd = fd.Fd()
 		o.terminal = term.IsTerminal(o.fd) && os.Getenv("TERM") != "dumb"
@@ -54,8 +57,12 @@ func Attribution(event lifecycle.Event) string {
 	if event.Workflow == "" {
 		return event.Operation
 	}
-	return fmt.Sprintf("%s %d.%d %s/%s", safe(event.Workflow),
-		event.Stage, event.Task, safe(event.Operation), safe(event.Repository))
+	operation := safe(event.Operation)
+	if event.Repository != "" {
+		operation += "/" + safe(event.Repository)
+	}
+	return fmt.Sprintf("%s %d.%d %s", safe(event.Workflow),
+		event.Stage, event.Task, operation)
 }
 
 func Label(source, attribution string) string {
@@ -65,22 +72,23 @@ func Label(source, attribution string) string {
 	return source + " [" + attribution + "] "
 }
 
-func (o *Output) Writer(stdout bool, label string) io.Writer {
-	return labelledWriter{o, stdout, label}
+func (o *Output) Writer(stdout bool, label string) *labelledWriter {
+	return &labelledWriter{output: o, stdout: stdout, label: label}
 }
 
 // Write is the scheduler's diagnostic stream.
 func (o *Output) Write(p []byte) (int, error) {
-	return o.Writer(false, "").Write(p)
+	return o.diagnostics.Write(p)
 }
 
 type labelledWriter struct {
-	output *Output
-	stdout bool
-	label  string
+	output  *Output
+	stdout  bool
+	label   string
+	pending []byte
 }
 
-func (w labelledWriter) Write(p []byte) (int, error) {
+func (w *labelledWriter) Write(p []byte) (int, error) {
 	size := len(p)
 	o := w.output
 	o.mu.Lock()
@@ -93,15 +101,24 @@ func (w labelledWriter) Write(p []byte) (int, error) {
 	if *sticky != nil {
 		return 0, *sticky
 	}
+	p = append(w.pending, p...)
+	w.pending = nil
+	for i := 0; i < len(p); {
+		if !utf8.FullRune(p[i:]) {
+			w.pending = append(w.pending, p[i:]...)
+			p = p[:i]
+			break
+		}
+		_, width := utf8.DecodeRune(p[i:])
+		i += width
+	}
 	if len(p) > 0 {
 		var framed bytes.Buffer
 		for len(p) > 0 {
-			line, rest, found := bytes.Cut(p, []byte{'\n'})
+			line, rest, _ := bytes.Cut(p, []byte{'\n'})
 			framed.WriteString(w.label)
 			framed.WriteString(safe(string(line)))
-			if found {
-				framed.WriteByte('\n')
-			}
+			framed.WriteByte('\n')
 			p = rest
 		}
 		write(destination, framed.Bytes(), sticky)
@@ -112,6 +129,26 @@ func (w labelledWriter) Write(p []byte) (int, error) {
 	}
 	// Framing changes the destination size, not the caller's write count.
 	return size, nil
+}
+
+// Flush emits an incomplete UTF-8 suffix as replacement characters at EOF.
+func (w *labelledWriter) Flush() error {
+	o := w.output
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if len(w.pending) == 0 {
+		return nil
+	}
+	o.clear()
+	destination, sticky := o.stderr, &o.errErr
+	if w.stdout {
+		destination, sticky = o.stdout, &o.outErr
+	}
+	text := w.label + safe(string(w.pending)) + "\n"
+	w.pending = nil
+	write(destination, []byte(text), sticky)
+	o.draw()
+	return *sticky
 }
 
 func write(w io.Writer, p []byte, sticky *error) {

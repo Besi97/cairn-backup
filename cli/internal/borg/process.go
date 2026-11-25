@@ -20,6 +20,12 @@ const shutdownGrace = 5 * time.Second
 // descendants are done using local resources, even after Runner.Run returns.
 var ErrProcessGroupNotStopped = errors.New("Borg process group did not stop")
 
+// RunOwnedProcess runs a local child with the same process-group lifetime policy
+// as Borg. The caller owns the command's streams and inherited descriptors.
+func RunOwnedProcess(ctx context.Context, cmd *exec.Cmd) error {
+	return runProcess(ctx, cmd, shutdownGrace)
+}
+
 // runProcess owns a separate local process group, including children retaining
 // output pipes after the leader exits. Only the direct child can be reaped here;
 // orphan descendants are reaped by their ancestor or the system's init process.
@@ -37,14 +43,16 @@ func runProcess(ctx context.Context, cmd *exec.Cmd, grace time.Duration) error {
 	exited := make(chan error, 1)
 	go func() { exited <- awaitLeader(cmd.Process.Pid) }()
 	var waitErr error
+	var cancelErr error
 	signal := syscall.SIGTERM
 	observed := false
 	select {
 	case waitErr = <-exited:
 		observed = true
 	case <-ctx.Done():
+		cancelErr = ctx.Err()
 	}
-	if ctx.Err() != nil {
+	if cancelErr != nil {
 		signal = cancellation.From(ctx)
 	}
 	// Do not reap the group leader until group cleanup finishes. Its retained
@@ -54,8 +62,8 @@ func runProcess(ctx context.Context, cmd *exec.Cmd, grace time.Duration) error {
 		waitErr = <-exited
 	}
 	err := cmd.Wait()
-	if ctx.Err() != nil {
-		return errors.Join(ctx.Err(), cleanupErr, waitErr)
+	if cancelErr != nil {
+		return errors.Join(cancelErr, cleanupErr, waitErr)
 	}
 	if cleanupErr != nil || waitErr != nil {
 		return &lifecycleError{errors.Join(err, cleanupErr, waitErr)}
