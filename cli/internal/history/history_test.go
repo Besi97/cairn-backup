@@ -22,6 +22,16 @@ func event(id string, seq uint64, kind lifecycle.Kind) lifecycle.Event {
 	return lifecycle.Event{RunID: id, Sequence: seq, Time: time.Now().UTC(), Source: lifecycle.Manual, Kind: kind}
 }
 
+func TestCommandOperationsAccepted(t *testing.T) {
+	for _, name := range []string{"command", "shell"} {
+		e := event("run", 1, lifecycle.TaskStarted)
+		e.Operation = name
+		if !validEvent(e) {
+			t.Fatalf("operation %q rejected", name)
+		}
+	}
+}
+
 func store(t *testing.T) (*Store, string) {
 	t.Helper()
 	state := t.TempDir()

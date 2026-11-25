@@ -40,6 +40,48 @@ func TestConfiguredCommandWorkflow(t *testing.T) {
 	}
 }
 
+func TestConfiguredShellWorkflow(t *testing.T) {
+	for _, tt := range []struct {
+		name, shell, command, timeout string
+		wantTimeout                   time.Duration
+		wantOutcome                   borg.Outcome
+		wantOutput                    string
+	}{
+		{"path lookup and expansion", "sh", `printf '%s' "$CAIRN_SHELL_TEST" | tr a-z A-Z`, "", 5 * time.Minute, borg.Success, "SELECTED"},
+		{"explicit path", "/bin/sh", `printf '%s' explicit`, "timeout_seconds: 3\n", 3 * time.Second, borg.Success, "explicit"},
+		{"missing shell", "/no/such/shell", "true", "", 5 * time.Minute, borg.Failure, ""},
+		{"nonzero", "/bin/sh", "exit 7", "", 5 * time.Minute, borg.Failure, ""},
+		{"timeout", "/bin/sh", "sleep 10", "timeout_seconds: 1\n", time.Second, borg.Failure, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("CAIRN_SHELL_TEST", "selected")
+			dir := t.TempDir()
+			path := filepath.Join(dir, "config.yaml")
+			text := fmt.Sprintf("version: 1\nrepositories: {}\nworkflows:\n  test:\n    stages:\n      - tasks:\n          - type: shell\n            shell: %s\n            command: %q\n            %s", tt.shell, tt.command, tt.timeout)
+			if err := os.WriteFile(path, []byte(text), 0600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := config.Load(config.Options{Path: path, Explicit: true, Directory: dir})
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan, err := Prepare(cfg, "test", time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			task := plan.Stages[0][0]
+			if task.Type != "shell" || task.Command.Program != tt.shell || task.Command.Timeout != tt.wantTimeout || len(task.Command.Args) != 2 || task.Command.Args[0] != "-c" || task.Command.Args[1] != tt.command {
+				t.Fatalf("prepared task: %+v", task)
+			}
+			var stdout, stderr bytes.Buffer
+			result, err := (Executor{Stdout: &stdout, Stderr: &stderr}).Run(context.Background(), plan)
+			if result.Outcome != tt.wantOutcome || (err != nil) != (tt.wantOutcome == borg.Failure) || !strings.Contains(stdout.String(), tt.wantOutput) {
+				t.Fatalf("result=%+v err=%v stdout=%s stderr=%s", result, err, &stdout, &stderr)
+			}
+		})
+	}
+}
+
 func TestConfiguredCommandDefaults(t *testing.T) {
 	for _, fields := range []string{"", ", args: []", ", timeout_seconds: 42"} {
 		t.Run(fields, func(t *testing.T) {
@@ -174,6 +216,19 @@ func TestCommandExecution(t *testing.T) {
 			t.Fatalf("result=%+v err=%v elapsed=%v", result, err, time.Since(start))
 		}
 	})
+	t.Run("shell leader exits before timeout while descendant cleans up", func(t *testing.T) {
+		t.Setenv("CAIRN_HELPER_BINARY", binary)
+		t.Setenv("CAIRN_HELPER_READY", filepath.Join(t.TempDir(), "ready"))
+		task := Task{Type: "shell", Command: &Command{
+			Program: "/bin/sh", Args: []string{"-c", `exec "$CAIRN_HELPER_BINARY" -test.run=^TestCommandHelper$ -- descendant "$CAIRN_HELPER_READY"`},
+			Timeout: 600 * time.Millisecond,
+		}}
+		start := time.Now()
+		result, err := (Executor{}).Run(context.Background(), Plan{Stages: [][]Task{{task}}})
+		if err != nil || result.Outcome != borg.Success || time.Since(start) < task.Command.Timeout {
+			t.Fatalf("result=%+v err=%v elapsed=%v", result, err, time.Since(start))
+		}
+	})
 	t.Run("leader exit stops descendant", func(t *testing.T) {
 		ready := filepath.Join(t.TempDir(), "ready")
 		task := command("descendant", ready, "child-term")
@@ -220,6 +275,54 @@ func TestCommandExecution(t *testing.T) {
 		result, err := (Executor{}).Run(ctx, Plan{Stages: [][]Task{{command("wait")}}})
 		if !errors.Is(err, context.Canceled) || result.Outcome != borg.Interrupted {
 			t.Fatalf("result=%+v err=%v", result, err)
+		}
+	})
+	t.Run("shell cancellation stops descendant", func(t *testing.T) {
+		ready := filepath.Join(t.TempDir(), "ready")
+		t.Setenv("CAIRN_HELPER_BINARY", binary)
+		t.Setenv("CAIRN_HELPER_READY", ready)
+		task := Task{Type: "shell", Command: &Command{
+			Program: "/bin/sh", Args: []string{"-c", `"$CAIRN_HELPER_BINARY" -test.run=^TestCommandHelper$ -- child-term "$CAIRN_HELPER_READY" & wait`},
+			Timeout: 30 * time.Second,
+		}}
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		type runResult struct {
+			result Result
+			err    error
+		}
+		done := make(chan runResult, 1)
+		go func() {
+			result, err := (Executor{}).Run(ctx, Plan{Stages: [][]Task{{task}}})
+			done <- runResult{result, err}
+		}()
+		deadline := time.NewTimer(10 * time.Second)
+		defer deadline.Stop()
+		tick := time.NewTicker(10 * time.Millisecond)
+		defer tick.Stop()
+		for {
+			if _, err := os.Stat(ready); err == nil {
+				break
+			}
+			select {
+			case <-tick.C:
+			case <-deadline.C:
+				cancel()
+				<-done
+				t.Fatal("descendant did not start")
+			}
+		}
+		cancel()
+		select {
+		case got := <-done:
+			if !errors.Is(got.err, context.Canceled) || got.result.Outcome != borg.Interrupted {
+				t.Fatalf("result=%+v err=%v", got.result, got.err)
+			}
+			if _, err := os.Stat(ready + ".stopped"); err != nil {
+				t.Fatalf("descendant did not finish cleanup: %v", err)
+			}
+		case <-deadline.C:
+			t.Fatal("shell cancellation hung")
 		}
 	})
 	t.Run("startup failure", func(t *testing.T) {

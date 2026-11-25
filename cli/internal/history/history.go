@@ -477,7 +477,7 @@ func validSummary(s Summary) bool {
 }
 
 func operation(s string) bool {
-	return s == "backup" || s == "prune" || s == "compact" || s == "check" || s == "restore" || s == "recovery" || s == "recovery_check"
+	return s == "backup" || s == "prune" || s == "compact" || s == "check" || s == "restore" || s == "recovery" || s == "recovery_check" || s == "command" || s == "shell"
 }
 
 func validEvent(e lifecycle.Event) bool {

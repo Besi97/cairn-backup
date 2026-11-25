@@ -204,7 +204,9 @@ an optional list of literal strings. Omitted or empty `args` means no arguments.
 performed. The working directory is the configuration directory, stdin is closed,
 and the process inherits Cairn's environment and permissions. The timeout defaults
 to 300 seconds (5 minutes); `timeout_seconds` overrides it with a value from
-1–9223372036 seconds (the maximum representable duration). Exit 0
+1–9223372036 seconds (the maximum representable duration). The timeout measures
+the command leader's execution, not the subsequent process-group cleanup.
+Cleanup can extend the total wall-clock duration beyond the timeout. Exit 0
 succeeds; every nonzero exit, signal, startup error, or timeout fails the task
 and prevents later stages. Workflow cancellation
 interrupts the task. Cairn stops the owned process group on exit or cancellation,
@@ -220,6 +222,24 @@ processes. Do not put secrets in arguments or print them. Configuration is trust
 code: anyone able to change it can run arbitrary programs as Cairn, including
 through scheduled workflows. Restrict write access and review configuration before
 running it. Containers may not include the executable.
+
+### Shell commands
+
+```yaml
+type: shell
+shell: /bin/sh
+command: 'printf "%s\n" "$HOME" | sort'
+timeout_seconds: 600 # optional; defaults to 300 (5 minutes)
+```
+
+`shell` is an explicitly selected installed executable name (looked up in PATH)
+or path. Cairn invokes it with `-c` and the `command` string; choose a shell
+that supports this interface. No shell is selected or installed automatically:
+the distroless image has no shell. Shell tasks have the same timeout, working
+directory, environment, output, cancellation, and exit behavior as executable
+commands above. Shell commands are trusted code and run with Cairn's permissions;
+their text is visible in configuration browsing and may be visible to local
+processes. Do not put secrets in command strings or output.
 
 Cross-process workflow overlap protection rejects a duplicate manual invocation
 with exit code `2`, without waiting or starting Borg. Manual runs start immediately

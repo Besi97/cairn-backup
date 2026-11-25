@@ -55,6 +55,8 @@ type Stage struct {
 type Task struct {
 	Type           string          `json:"type"`
 	Program        string          `json:"program"`
+	Shell          string          `json:"shell"`
+	Command        string          `json:"command"`
 	Args           []string        `json:"args"`
 	TimeoutSeconds int             `json:"timeout_seconds"`
 	Repository     string          `json:"repository"`

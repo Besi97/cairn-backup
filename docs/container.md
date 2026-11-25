@@ -3,7 +3,9 @@
 The [Compose example](../deploy/compose/) runs the foreground scheduler as
 UID and GID `10001`, the default in both images. It needs neither privileged
 mode nor a Docker socket. The images include Borg 1.x and OpenSSH. The
-distroless image has no shell; invoke Cairn commands directly.
+distroless image has no shell; invoke Cairn commands directly. Shell workflow
+tasks require an explicitly selected installed shell and will not run in the
+distroless image unless one is supplied separately.
 
 ## Choose an image
 
