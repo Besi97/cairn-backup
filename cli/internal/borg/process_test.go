@@ -128,6 +128,34 @@ func (w cancelWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+type cancelErrorWriter struct{ cancel context.CancelFunc }
+
+func (w cancelErrorWriter) Write([]byte) (int, error) {
+	w.cancel()
+	return 0, context.Canceled
+}
+
+func TestWriterCancellationAfterLeaderExit(t *testing.T) {
+	for _, separated := range []bool{false, true} {
+		t.Run(strconv.FormatBool(separated), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			req := request()
+			req.Env["FAKE_TREE"] = filepath.Join(t.TempDir(), "ready")
+			req.Env["FAKE_PARENT_EXIT"], req.Env["FAKE_SIGNAL_OUTPUT"] = "yes", "yes"
+			if separated {
+				req.Stdout = cancelErrorWriter{cancel}
+			} else {
+				req.Diagnostics = cancelErrorWriter{cancel}
+			}
+			result, err := (Runner{Executable: fakeBorg}).Run(ctx, req)
+			if ctx.Err() == nil || result.Outcome != Failure || !errors.Is(err, context.Canceled) {
+				t.Fatalf("result = %+v, error = %v, context = %v", result, err, ctx.Err())
+			}
+		})
+	}
+}
+
 func TestCancellationRacesWithCompletion(t *testing.T) {
 	for range 20 {
 		ctx, cancel := context.WithCancel(t.Context())

@@ -3,6 +3,9 @@ package cli
 import (
 	"bytes"
 	"context"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -57,6 +60,67 @@ func TestRun(t *testing.T) {
 				if strings.Count(stderr.String(), "Error:") != 1 {
 					t.Errorf("expected one error diagnostic: %q", &stderr)
 				}
+			}
+		})
+	}
+}
+
+type cancelOnText struct {
+	dst    io.Writer
+	text   string
+	cancel context.CancelFunc
+}
+
+func (w cancelOnText) Write(p []byte) (int, error) {
+	if strings.Contains(string(p), w.text) {
+		w.cancel()
+	}
+	return w.dst.Write(p)
+}
+
+func TestSingleOperationCancellationDuringCleanup(t *testing.T) {
+	fakeBorgEnvironment(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	for _, tc := range []struct {
+		exit string
+		code int
+	}{{"0", 0}, {"1", 1}, {"2", 2}, {"130", 130}} {
+		t.Run(tc.exit, func(t *testing.T) {
+			t.Setenv("FAKE_TREE", filepath.Join(t.TempDir(), "ready"))
+			t.Setenv("FAKE_PARENT_EXIT", "yes")
+			t.Setenv("FAKE_SIGNAL_OUTPUT", "yes")
+			t.Setenv("FAKE_EXIT", tc.exit)
+			ctx, cancel := context.WithCancelCause(t.Context())
+			defer cancel(nil)
+			var stdout, stderr bytes.Buffer
+			writer := cancelOnText{&stderr, "child stopped", func() { cancel(cancellation.Signal(syscall.SIGTERM)) }}
+			code := Run(ctx, []string{"compact", "--repository=repo"}, &stdout, writer, "test")
+			if ctx.Err() == nil || code != tc.code || strings.Contains(stderr.String(), "Interrupted:") {
+				t.Fatalf("code = %d, context = %v, stdout = %q, stderr = %q", code, ctx.Err(), &stdout, &stderr)
+			}
+		})
+	}
+}
+
+func TestArchiveCancellationDuringCleanup(t *testing.T) {
+	path := archiveBorgEnvironment(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	if err := os.WriteFile(path, []byte(`{"archives":[]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		exit string
+		code int
+	}{{"0", 0}, {"1", 1}, {"2", 2}, {"130", 130}} {
+		t.Run(tc.exit, func(t *testing.T) {
+			t.Setenv("LIST_BORG_READY", filepath.Join(t.TempDir(), "ready"))
+			t.Setenv("LIST_BORG_EXIT", tc.exit)
+			ctx, cancel := context.WithCancelCause(t.Context())
+			defer cancel(nil)
+			var stdout, stderr bytes.Buffer
+			code := Run(ctx, []string{"archive", "list", "--repository=repo"}, &stdout, cancelOnText{&stderr, "cleanup signal", func() { cancel(cancellation.Signal(syscall.SIGTERM)) }}, "test")
+			if ctx.Err() == nil || code != tc.code || strings.Contains(stderr.String(), "Interrupted:") {
+				t.Fatalf("code = %d, context = %v, stdout = %q, stderr = %q", code, ctx.Err(), &stdout, &stderr)
 			}
 		})
 	}

@@ -31,7 +31,7 @@ func RunOwnedProcess(ctx context.Context, cmd *exec.Cmd) error {
 // orphan descendants are reaped by their ancestor or the system's init process.
 func runProcess(ctx context.Context, cmd *exec.Cmd, grace time.Duration) error {
 	if err := ctx.Err(); err != nil {
-		return err
+		return &processCanceled{err}
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	// Detached descendants are outside group ownership; do not let inherited
@@ -65,7 +65,7 @@ func runProcess(ctx context.Context, cmd *exec.Cmd, grace time.Duration) error {
 	}
 	err := cmd.Wait()
 	if cancelErr != nil {
-		return errors.Join(cancelErr, cleanupErr, waitErr)
+		return &processCanceled{errors.Join(cancelErr, cleanupErr, waitErr)}
 	}
 	if cleanupErr != nil || waitErr != nil {
 		return &lifecycleError{errors.Join(err, cleanupErr, waitErr)}
@@ -77,6 +77,11 @@ func runProcess(ctx context.Context, cmd *exec.Cmd, grace time.Duration) error {
 type lifecycleError struct{ error }
 
 func (e *lifecycleError) Unwrap() error { return e.error }
+
+// processCanceled records the selected event, not merely an error's identity.
+type processCanceled struct{ error }
+
+func (e *processCanceled) Unwrap() error { return e.error }
 
 func awaitLeader(pid int) error {
 	for {

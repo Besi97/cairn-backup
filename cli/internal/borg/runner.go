@@ -59,12 +59,19 @@ type Runner struct {
 	InheritedFiles []*os.File
 }
 
+// IsCancellation reports whether process cancellation, rather than leader exit
+// or an output error with the same identity, determined the runner result.
+func IsCancellation(err error) bool {
+	var canceled *processCanceled
+	return errors.As(err, &canceled)
+}
+
 // Run checks compatibility before executing an operation. Warnings are completed
 // operations and return a nil error. Failures and interruptions return an error.
 func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	failed := Result{Outcome: Failure, ExitCode: -1}
 	if err := ctx.Err(); err != nil {
-		return Result{Outcome: Interrupted, ExitCode: -1}, err
+		return Result{Outcome: Interrupted, ExitCode: -1}, &processCanceled{err}
 	}
 	if len(req.Args) == 0 {
 		return failed, errors.New("missing Borg operation arguments")
@@ -93,10 +100,11 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	var version cappedOutput
 	probe.Stdout, probe.Stderr = &version, &version
 	if err := runProcess(ctx, probe, shutdownGrace); err != nil {
-		if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+		var canceled *processCanceled
+		if errors.As(err, &canceled) {
 			result := processResult(probe)
 			result.Outcome = Interrupted
-			return result, errors.Join(ctx.Err(), err)
+			return result, err
 		}
 		return failed, fmt.Errorf("check Borg version: %w", err)
 	}
@@ -141,10 +149,11 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	if logs != nil {
 		logErr = errors.Join(plain.flush(), logs.flush())
 	}
-	if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+	var canceled *processCanceled
+	if errors.As(err, &canceled) {
 		result := processResult(cmd)
 		result.Outcome = Interrupted
-		return result, errors.Join(ctx.Err(), err)
+		return result, err
 	}
 	if stdout != nil && stdout.Err() != nil {
 		result := processResult(cmd)

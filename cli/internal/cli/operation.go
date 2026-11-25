@@ -48,6 +48,7 @@ func runOperation(cmd *cobra.Command, request borg.Request, operation, status, p
 		result.Outcome = borg.Failure
 		runErr = errors.Join(runErr, err)
 	}
+	recordBorgResult(cmd.Context(), result, runErr)
 	outcome = lifecycle.FromBorg(result.Outcome)
 	code, renderedOutcome := exitFailure, "failed"
 	switch result.Outcome {

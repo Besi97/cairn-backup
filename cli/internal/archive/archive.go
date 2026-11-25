@@ -118,10 +118,6 @@ func stream(ctx context.Context, runner borg.Runner, request borg.Request, decod
 	result, runErr := runner.Run(runCtx, request)
 	_ = writer.Close()
 	decodeErr := <-done
-	if ctx.Err() != nil {
-		result.Outcome = borg.Interrupted
-		return result, errors.Join(ctx.Err(), runErr)
-	}
 	if decodeErr != nil {
 		if runErr != nil && (decodeErr == io.EOF || decodeErr == io.ErrUnexpectedEOF) {
 			return result, runErr
