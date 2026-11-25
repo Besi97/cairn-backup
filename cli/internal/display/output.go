@@ -54,8 +54,12 @@ func Attribution(event lifecycle.Event) string {
 	if event.Workflow == "" {
 		return event.Operation
 	}
-	return fmt.Sprintf("%s %d.%d %s/%s", safe(event.Workflow),
-		event.Stage, event.Task, safe(event.Operation), safe(event.Repository))
+	operation := safe(event.Operation)
+	if event.Repository != "" {
+		operation += "/" + safe(event.Repository)
+	}
+	return fmt.Sprintf("%s %d.%d %s", safe(event.Workflow),
+		event.Stage, event.Task, operation)
 }
 
 func Label(source, attribution string) string {

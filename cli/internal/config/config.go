@@ -53,27 +53,30 @@ type Stage struct {
 // Task is a schema-validated discriminated union. Only fields belonging to Type
 // can be populated. Sources, exclusions, and archive templates remain literal.
 type Task struct {
-	Type          string          `json:"type"`
-	Repository    string          `json:"repository"`
-	ArchivePrefix string          `json:"archive_prefix"`
-	ArchiveName   string          `json:"archive_name"`
-	SourceRoot    string          `json:"source_root"`
-	Sources       []string        `json:"sources"`
-	Exclude       []string        `json:"exclude"`
-	LockWait      *int            `json:"lock_wait"`
-	VerifyData    bool            `json:"verify_data"`
-	KeepWithin    string          `json:"keep_within"`
-	KeepSecondly  int             `json:"keep_secondly"`
-	KeepMinutely  int             `json:"keep_minutely"`
-	KeepHourly    int             `json:"keep_hourly"`
-	KeepDaily     int             `json:"keep_daily"`
-	KeepWeekly    int             `json:"keep_weekly"`
-	KeepMonthly   int             `json:"keep_monthly"`
-	KeepYearly    int             `json:"keep_yearly"`
-	Paths         []string        `json:"paths"`
-	WholeArchive  bool            `json:"whole_archive"`
-	Checks        []RecoveryCheck `json:"checks"`
-	Sample        *RecoverySample `json:"sample"`
+	Type           string          `json:"type"`
+	Program        string          `json:"program"`
+	Args           []string        `json:"args"`
+	TimeoutSeconds int             `json:"timeout_seconds"`
+	Repository     string          `json:"repository"`
+	ArchivePrefix  string          `json:"archive_prefix"`
+	ArchiveName    string          `json:"archive_name"`
+	SourceRoot     string          `json:"source_root"`
+	Sources        []string        `json:"sources"`
+	Exclude        []string        `json:"exclude"`
+	LockWait       *int            `json:"lock_wait"`
+	VerifyData     bool            `json:"verify_data"`
+	KeepWithin     string          `json:"keep_within"`
+	KeepSecondly   int             `json:"keep_secondly"`
+	KeepMinutely   int             `json:"keep_minutely"`
+	KeepHourly     int             `json:"keep_hourly"`
+	KeepDaily      int             `json:"keep_daily"`
+	KeepWeekly     int             `json:"keep_weekly"`
+	KeepMonthly    int             `json:"keep_monthly"`
+	KeepYearly     int             `json:"keep_yearly"`
+	Paths          []string        `json:"paths"`
+	WholeArchive   bool            `json:"whole_archive"`
+	Checks         []RecoveryCheck `json:"checks"`
+	Sample         *RecoverySample `json:"sample"`
 }
 
 type RecoveryCheck struct {

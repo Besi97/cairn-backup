@@ -32,6 +32,14 @@ type Task struct {
 	Scope      string
 	Request    borg.Request
 	Drill      *drill.Options
+	Command    *Command
+}
+
+type Command struct {
+	Program string
+	Args    []string
+	Dir     string
+	Timeout time.Duration
 }
 
 // Prepare adapts a fully loaded configuration to the same primitives used by
@@ -46,6 +54,13 @@ func Prepare(selected *config.Config, name string, now time.Time) (Plan, error) 
 	for i, stage := range definition.Stages {
 		tasks := make([]Task, 0, len(stage.Tasks))
 		for j, task := range stage.Tasks {
+			if task.Type == "command" {
+				tasks = append(tasks, Task{Type: task.Type, Scope: "trusted executable command", Command: &Command{
+					Program: task.Program, Args: append([]string(nil), task.Args...), Dir: selected.Directory,
+					Timeout: time.Duration(task.TimeoutSeconds) * time.Second,
+				}})
+				continue
+			}
 			repository, ok := selected.Repositories[task.Repository]
 			if !ok {
 				return Plan{}, fmt.Errorf("stage %d task %d: unknown repository", i+1, j+1)

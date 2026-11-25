@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"sync"
+	"syscall"
 
 	"github.com/Besi97/cairn-backup/cli/internal/borg"
 	"github.com/Besi97/cairn-backup/cli/internal/display"
@@ -246,7 +248,9 @@ func runTask(ctx context.Context, runner OperationRunner, output *Output, id dis
 	var result borg.Result
 	var err error
 	var recovery *report.Evidence
-	if task.Drill != nil {
+	if task.Command != nil {
+		result, err = runCommand(ctx, runner, output, attribution, task.Command)
+	} else if task.Drill != nil {
 		borgRunner, ok := runner.(borg.Runner)
 		if !ok {
 			result = borg.Result{Outcome: borg.Failure, ExitCode: -1}
@@ -303,6 +307,59 @@ func runTask(ctx context.Context, runner OperationRunner, output *Output, id dis
 		err = errors.Join(err, outputErr)
 	}
 	return TaskResult{Result: result, Err: err, Recovery: recovery}
+}
+
+func runCommand(ctx context.Context, runner OperationRunner, output *Output, attribution string, command *Command) (borg.Result, error) {
+	result := borg.Result{Outcome: borg.Failure, ExitCode: -1}
+	if command.Timeout <= 0 {
+		return result, errors.New("invalid command timeout")
+	}
+	childCtx, cancel := context.WithTimeout(ctx, command.Timeout)
+	defer cancel()
+	cmd := exec.Command(command.Program, command.Args...)
+	cmd.Dir = command.Dir
+	if r, ok := runner.(borg.Runner); ok {
+		cmd.ExtraFiles = r.InheritedFiles
+	}
+	stdout := display.NewLines(output.Writer(true, display.Label("command stdout", attribution)))
+	stderr := display.NewLines(output.Writer(false, display.Label("command stderr", attribution)))
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	err := borg.RunOwnedProcess(childCtx, cmd)
+	outputErr := errors.Join(stdout.Flush(), stderr.Flush(), output.Err())
+	if cmd.ProcessState != nil {
+		result.ExitCode = cmd.ProcessState.ExitCode()
+		if status, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+			result.Signal = int(status.Signal())
+		}
+	}
+	var cleanupErr error
+	if errors.Is(err, borg.ErrProcessGroupNotStopped) {
+		cleanupErr = errors.New("command process group did not stop")
+	}
+	if ctx.Err() != nil {
+		result.Outcome = borg.Interrupted
+		return result, errors.Join(ctx.Err(), cleanupErr, outputErr)
+	}
+	if childCtx.Err() != nil {
+		return result, errors.Join(errors.New("command timed out"), cleanupErr, outputErr)
+	}
+	if outputErr != nil {
+		return result, errors.Join(errors.New("command output failed"), outputErr)
+	}
+	if err != nil {
+		if cleanupErr != nil {
+			return result, cleanupErr
+		}
+		if result.Signal != 0 {
+			return result, fmt.Errorf("command terminated by signal %d", result.Signal)
+		}
+		if result.ExitCode > 0 {
+			return result, fmt.Errorf("command exited with code %d", result.ExitCode)
+		}
+		return result, errors.New("command could not run")
+	}
+	result.Outcome = borg.Success
+	return result, nil
 }
 
 type Output = display.Output

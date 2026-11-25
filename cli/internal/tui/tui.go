@@ -306,7 +306,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.page, m.task = workflowPage, 0
 			case m.page == workflowPage && len(m.tasks()) > 0:
 				m.page = taskPage
-			case m.page == taskPage && len(m.tasks()) > 0:
+			case m.page == taskPage && len(m.tasks()) > 0 && m.selectedTask().Repository != "":
 				m.repositoryFrom = m.page
 				m.page = repositoryPage
 			default:

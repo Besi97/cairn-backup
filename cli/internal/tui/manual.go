@@ -134,9 +134,13 @@ func (m Model) confirmation() string {
 	for i, stage := range plan.Stages {
 		rows = append(rows, heading(fmt.Sprintf("Stage %d", i+1)))
 		for j, task := range stage {
-			rows = append(rows, fmt.Sprintf("  %d. %s → %s", j+1, config.DisplayText(task.Type), config.DisplayText(task.Repository)))
+			if task.Command != nil {
+				rows = append(rows, fmt.Sprintf("  %d. command (trusted executable)", j+1))
+			} else {
+				rows = append(rows, fmt.Sprintf("  %d. %s → %s", j+1, config.DisplayText(task.Type), config.DisplayText(task.Repository)))
+			}
 		}
 	}
-	rows = append(rows, "Prune can delete archives; compact reclaims repository space.", "Review all stages. Press y to start; Esc cancels.")
+	rows = append(rows, "Commands run with Cairn's permissions. Prune can delete archives; compact reclaims repository space.", "Review all stages. Press y to start; Esc cancels.")
 	return strings.Join(rows, "\n\n")
 }

@@ -111,6 +111,17 @@ func (config *Config) resolve(home string, doc *yaml.Node) error {
 			for ti := range workflow.Stages[si].Tasks {
 				task := &workflow.Stages[si].Tasks[ti]
 				fields := []string{"workflows", name, "stages", strconv.Itoa(si), "tasks", strconv.Itoa(ti)}
+				if task.Type == "command" {
+					if !filepath.IsAbs(task.Program) || strings.ContainsRune(task.Program, 0) {
+						return fail(append(fields, "program"), "must be an absolute executable path without NUL")
+					}
+					for _, arg := range task.Args {
+						if strings.ContainsRune(arg, 0) {
+							return fail(append(fields, "args"), "arguments must not contain NUL")
+						}
+					}
+					continue
+				}
 				repo, exists := config.Repositories[task.Repository]
 				if !exists {
 					return fail(append(fields, "repository"), "references an undefined repository")

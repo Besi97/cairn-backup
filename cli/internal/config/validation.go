@@ -105,7 +105,7 @@ func usefulError(err *jsonschema.ValidationError, doc *yaml.Node) *jsonschema.Va
 		if reference, ok := cause.ErrorKind.(*kind.Reference); ok {
 			location = reference.URL
 		}
-		for _, entry := range []struct{ schema, task string }{{"backup", "backup"}, {"prune", "prune"}, {"compact", "compact"}, {"check", "check"}, {"recoveryCheck", "recovery_check"}} {
+		for _, entry := range []struct{ schema, task string }{{"backup", "backup"}, {"prune", "prune"}, {"compact", "compact"}, {"check", "check"}, {"recoveryCheck", "recovery_check"}, {"command", "command"}} {
 			if strings.Contains(location, "/"+entry.schema+"Task") {
 				fields := cause.InstanceLocation
 				if len(fields) >= 6 && fields[0] == "workflows" && fields[2] == "stages" && fields[4] == "tasks" {

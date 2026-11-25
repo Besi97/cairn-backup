@@ -20,6 +20,12 @@ const shutdownGrace = 5 * time.Second
 // descendants are done using local resources, even after Runner.Run returns.
 var ErrProcessGroupNotStopped = errors.New("Borg process group did not stop")
 
+// RunOwnedProcess runs a local child with the same process-group lifetime policy
+// as Borg. The caller owns the command's streams and inherited descriptors.
+func RunOwnedProcess(ctx context.Context, cmd *exec.Cmd) error {
+	return runProcess(ctx, cmd, shutdownGrace)
+}
+
 // runProcess owns a separate local process group, including children retaining
 // output pipes after the leader exits. Only the direct child can be reaped here;
 // orphan descendants are reaped by their ancestor or the system's init process.
