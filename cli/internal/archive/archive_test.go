@@ -123,4 +123,20 @@ func TestServiceStreaming(t *testing.T) {
 			t.Fatalf("count = %d, result = %+v, error = %v", count, result, err)
 		}
 	})
+	t.Run("cancel with partial file record", func(t *testing.T) {
+		dataPath := filepath.Join(t.TempDir(), "data")
+		if err := os.WriteFile(dataPath, []byte(fileJSON+"\n"+`{"path":`), 0600); err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		result, err := Inspect(ctx, borg.Runner{Executable: binary},
+			borg.Request{Args: []string{"list"}, Env: map[string]string{"LIST_BORG_DATA": dataPath, "LIST_BORG_WAIT": "yes"}},
+			func(File) error { cancel(); return nil })
+		var secondary *borg.SecondaryError
+		if result.Outcome != borg.Interrupted || !borg.IsCancellation(err) || !errors.Is(err, context.Canceled) ||
+			!errors.As(err, &secondary) || !bytes.Contains([]byte(secondary.Error()), []byte("invalid JSON")) {
+			t.Fatalf("result = %+v, error = %v", result, err)
+		}
+	})
 }

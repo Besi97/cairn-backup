@@ -74,7 +74,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version s
 	err := cmd.ExecuteContext(ctx)
 	if ctx.Err() != nil && !completed {
 		fmt.Fprintf(stderr, "Interrupted: %v\n", context.Cause(ctx))
-		if errors.Is(err, borg.ErrProcessGroupNotStopped) {
+		var secondary *borg.SecondaryError
+		if errors.Is(err, borg.ErrProcessGroupNotStopped) || errors.As(err, &secondary) {
 			fmt.Fprintf(stderr, "Error: %v\n", err)
 		}
 		return 128 + int(cancellation.From(ctx))

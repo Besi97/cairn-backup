@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,6 +13,50 @@ import (
 
 	"github.com/Besi97/cairn-backup/cli/internal/cancellation"
 )
+
+type failMatchingWriter struct {
+	dst   io.Writer
+	match string
+}
+
+func (w failMatchingWriter) Write(p []byte) (int, error) {
+	if strings.Contains(string(p), w.match) {
+		return 0, errors.New("selected output failure")
+	}
+	return w.dst.Write(p)
+}
+
+func TestCancellationWithOutputFailure(t *testing.T) {
+	for _, stream := range []string{"summary", "flush"} {
+		t.Run(stream, func(t *testing.T) {
+			fakeBorgEnvironment(t)
+			t.Setenv("XDG_STATE_HOME", t.TempDir())
+			base := filepath.Join(t.TempDir(), "ready")
+			t.Setenv("FAKE_TREE", base)
+			if stream == "flush" {
+				t.Setenv("FAKE_SIGNAL_PARTIAL_UTF8", "yes")
+			}
+			ctx, cancel := context.WithCancelCause(t.Context())
+			defer cancel(nil)
+			var stdout, stderr bytes.Buffer
+			var out, diagnostic io.Writer = &stdout, &stderr
+			if stream == "summary" {
+				out = failMatchingWriter{&stdout, "interrupted"}
+			} else {
+				diagnostic = failMatchingWriter{&stderr, "�"}
+			}
+			done := make(chan int, 1)
+			go func() { done <- Run(ctx, []string{"compact", "--repository=repo"}, out, diagnostic, "test") }()
+			awaitFile(t, base+".parent")
+			awaitFile(t, base+".child")
+			cancel(cancellation.Signal(syscall.SIGTERM))
+			code := <-done
+			if code != 143 || !strings.Contains(stderr.String(), "Interrupted:") || !strings.Contains(stderr.String(), "selected output failure") {
+				t.Fatalf("code = %d, stdout = %q, stderr = %q", code, &stdout, &stderr)
+			}
+		})
+	}
+}
 
 func TestRun(t *testing.T) {
 	tests := []struct {

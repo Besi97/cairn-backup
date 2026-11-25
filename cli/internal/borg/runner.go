@@ -66,6 +66,12 @@ func IsCancellation(err error) bool {
 	return errors.As(err, &canceled)
 }
 
+// SecondaryError identifies an error reported alongside a selected cancellation.
+type SecondaryError struct{ Err error }
+
+func (e *SecondaryError) Error() string { return e.Err.Error() }
+func (e *SecondaryError) Unwrap() error { return e.Err }
+
 // Run checks compatibility before executing an operation. Warnings are completed
 // operations and return a nil error. Failures and interruptions return an error.
 func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
@@ -153,6 +159,13 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	if errors.As(err, &canceled) {
 		result := processResult(cmd)
 		result.Outcome = Interrupted
+		var outputErr error
+		if stdout != nil {
+			outputErr = stdout.Err()
+		}
+		if secondary := errors.Join(logErr, output.Err(), outputErr); secondary != nil {
+			err = errors.Join(err, &SecondaryError{Err: secondary})
+		}
 		return result, err
 	}
 	if stdout != nil && stdout.Err() != nil {

@@ -190,6 +190,9 @@ func processTree() {
 			if role == "child" && os.Getenv("FAKE_SIGNAL_OUTPUT") == "yes" {
 				fmt.Fprint(os.Stdout, "child stopped")
 			}
+			if role == "child" && os.Getenv("FAKE_SIGNAL_PARTIAL_UTF8") == "yes" {
+				_, _ = os.Stdout.Write([]byte{0xe2})
+			}
 			return
 		case <-time.After(time.Second):
 		}
