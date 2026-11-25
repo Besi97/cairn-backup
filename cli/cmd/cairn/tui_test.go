@@ -448,13 +448,17 @@ func TestTUIArchiveTerminal(t *testing.T) {
 }
 
 func TestTUIRealBorgWorkflow(t *testing.T) {
-	borg, err := exec.LookPath("borg")
+	borg := os.Getenv("CAIRN_TEST_BORG")
+	if borg == "" {
+		t.Skip("set CAIRN_TEST_BORG to exercise real Borg")
+	}
+	borg, err := filepath.Abs(borg)
 	if err != nil {
-		t.Skip("Borg not installed")
+		t.Fatal(err)
 	}
 	version, err := exec.Command(borg, "--version").Output()
 	if err != nil || !strings.HasPrefix(string(version), "borg 1.") {
-		t.Skip("Borg 1.x required")
+		t.Fatalf("Borg 1.x required: version %q, error %v", version, err)
 	}
 	binary := buildExecutable(t, "cairn", ".")
 	dir := t.TempDir()
