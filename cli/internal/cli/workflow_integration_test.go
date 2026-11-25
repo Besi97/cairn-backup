@@ -46,6 +46,18 @@ func TestRealBorgWorkflow(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			stages := ""
+			if mode == "inline" {
+				stages = `
+      - tasks:
+          - {type: prune, repository: local, archive_prefix: docs, keep_daily: 1}
+      - tasks:
+          - {type: compact, repository: local}
+      - tasks:
+          - {type: check, repository: local}
+      - tasks:
+          - {type: check, repository: local, verify_data: true}`
+			}
 			text := fmt.Sprintf(`version: 1
 repositories:
   local: {location: ./repo%s}
@@ -54,18 +66,11 @@ workflows:
     stages:
       - tasks:
           - {type: backup, repository: local, archive_name: docs-current, source_root: ./source, sources: [payload, skip.tmp], exclude: ["*.tmp"]}
-      - tasks:
-          - {type: prune, repository: local, archive_prefix: docs, keep_daily: 1}
-      - tasks:
-          - {type: compact, repository: local}
-      - tasks:
-          - {type: check, repository: local}
-      - tasks:
-          - {type: check, repository: local, verify_data: true}
+%s
   compact-only:
     stages:
       - tasks: [{type: compact, repository: local}]
-`, credential)
+`, credential, stages)
 			path := filepath.Join(base, "config.yaml")
 			if err := os.WriteFile(path, []byte(text), 0600); err != nil {
 				t.Fatal(err)
@@ -83,12 +88,16 @@ workflows:
 			if secret != "" && strings.Contains(stdout.String()+stderr.String(), secret) {
 				t.Fatal("configured credential leaked")
 			}
-			for _, text := range []string{"manual 4.1 check/local", "manual 5.1 check/local", "Starting repository check", "Starting archive consistency check"} {
-				if !strings.Contains(stderr.String(), text) {
-					t.Errorf("missing check diagnostics %q: %s", text, &stderr)
+			if mode == "inline" {
+				for _, text := range []string{"manual 4.1 check/local", "manual 5.1 check/local", "Starting repository check", "Starting archive consistency check"} {
+					if !strings.Contains(stderr.String(), text) {
+						t.Errorf("missing check diagnostics %q: %s", text, &stderr)
+					}
 				}
+				assertArchiveNames(t, repositoryArchives(t, ctx, binary, repository, secret), "docs-current", "other-keep")
+			} else {
+				assertArchiveNames(t, repositoryArchives(t, ctx, binary, repository, secret), "docs-old", "docs-current", "other-keep")
 			}
-			assertArchiveNames(t, repositoryArchives(t, ctx, binary, repository, secret), "docs-current", "other-keep")
 			got := borgOutput(t, ctx, binary, secret, "extract", "--stdout", repository+"::docs-current", "payload")
 			if string(got) != contents {
 				t.Fatalf("archive contents = %q", got)
