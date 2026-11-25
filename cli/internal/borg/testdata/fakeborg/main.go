@@ -170,7 +170,8 @@ func processTree() {
 			deadline := time.Now().Add(5 * time.Second)
 			for {
 				if _, err := os.Stat(base + ".child"); err == nil {
-					return
+					code, _ := strconv.Atoi(os.Getenv("FAKE_EXIT"))
+					os.Exit(code)
 				}
 				if time.Now().After(deadline) {
 					panic("child did not become ready")
@@ -186,6 +187,9 @@ func processTree() {
 		select {
 		case sig := <-signals:
 			_ = os.WriteFile(base+"."+role+".signal", []byte(strconv.Itoa(int(sig.(syscall.Signal)))), 0600)
+			if role == "child" && os.Getenv("FAKE_SIGNAL_OUTPUT") == "yes" {
+				fmt.Fprint(os.Stdout, "child stopped")
+			}
 			return
 		case <-time.After(time.Second):
 		}

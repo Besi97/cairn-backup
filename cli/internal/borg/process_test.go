@@ -135,9 +135,39 @@ func TestCancellationRacesWithCompletion(t *testing.T) {
 		req.Diagnostics = cancelWriter{cancel}
 		result, err := (Runner{Executable: fakeBorg}).Run(ctx, req)
 		cancel()
-		if result.Outcome != Interrupted || !errors.Is(err, context.Canceled) {
-			t.Fatalf("canceled operation reported %+v, %v", result, err)
+		if !(result.Outcome == Interrupted && errors.Is(err, context.Canceled)) &&
+			!(result.Outcome == Success && err == nil) {
+			t.Fatalf("racing operation reported %+v, %v", result, err)
 		}
+	}
+}
+
+func TestCancellationDuringCleanup(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		code    string
+		outcome Outcome
+		wantErr bool
+	}{
+		{"success", "0", Success, false},
+		{"warning", "1", Warning, false},
+		{"failure", "2", Failure, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			req := request()
+			req.Env["FAKE_TREE"] = filepath.Join(t.TempDir(), "ready")
+			req.Env["FAKE_PARENT_EXIT"], req.Env["FAKE_SIGNAL_OUTPUT"] = "yes", "yes"
+			req.Env["FAKE_EXIT"] = tc.code
+			// The child writes only after cleanup signals it, which can happen
+			// only after the runner has observed the leader's exit.
+			req.Diagnostics = cancelWriter{cancel}
+			result, err := (Runner{Executable: fakeBorg}).Run(ctx, req)
+			if ctx.Err() == nil || result.Outcome != tc.outcome || (err != nil) != tc.wantErr || errors.Is(err, context.Canceled) {
+				t.Fatalf("result = %+v, error = %v, context = %v", result, err, ctx.Err())
+			}
+		})
 	}
 }
 

@@ -93,7 +93,7 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	var version cappedOutput
 	probe.Stdout, probe.Stderr = &version, &version
 	if err := runProcess(ctx, probe, shutdownGrace); err != nil {
-		if ctx.Err() != nil {
+		if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
 			result := processResult(probe)
 			result.Outcome = Interrupted
 			return result, errors.Join(ctx.Err(), err)
@@ -141,7 +141,7 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	if logs != nil {
 		logErr = errors.Join(plain.flush(), logs.flush())
 	}
-	if ctx.Err() != nil && err != nil {
+	if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
 		result := processResult(cmd)
 		result.Outcome = Interrupted
 		return result, errors.Join(ctx.Err(), err)

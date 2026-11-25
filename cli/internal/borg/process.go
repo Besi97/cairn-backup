@@ -46,6 +46,8 @@ func runProcess(ctx context.Context, cmd *exec.Cmd, grace time.Duration) error {
 	var cancelErr error
 	signal := syscall.SIGTERM
 	observed := false
+	// Whichever event is selected first determines the result. If both are
+	// ready, either may win; cancellation during subsequent cleanup is ignored.
 	select {
 	case waitErr = <-exited:
 		observed = true
