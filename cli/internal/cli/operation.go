@@ -36,13 +36,15 @@ func runOperation(cmd *cobra.Command, request borg.Request, operation, status, p
 	if _, err := fmt.Fprintln(output.Writer(false, ""), status); err != nil {
 		return &exitError{code: exitFailure, err: err}
 	}
-	request.Diagnostics = output.Writer(false, display.Label("borg", cmd.Name()))
+	diagnostics := output.Writer(false, display.Label("borg", cmd.Name()))
+	request.Diagnostics = diagnostics
 	request.Progress = func(progress borg.Progress) error {
 		return output.Progress(display.TaskID{Run: runID, Task: 1}, cmd.Name(), progress)
 	}
 	result, runErr := (borg.Runner{}).Run(cmd.Context(), request)
+	flushErr := diagnostics.Flush()
 	output.FinishTask(display.TaskID{Run: runID, Task: 1})
-	if err := output.Err(); err != nil {
+	if err := errors.Join(flushErr, output.Err()); err != nil {
 		result.Outcome = borg.Failure
 		runErr = errors.Join(runErr, err)
 	}

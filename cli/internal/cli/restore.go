@@ -159,9 +159,11 @@ func runRestore(cmd *cobra.Command, plan restore.Plan, authorized, preview bool)
 	plan = plan.WithProgress(func(progress borg.Progress) error {
 		return output.Progress(id, "restore", progress)
 	})
-	result, runErr := plan.Run(cmd.Context(), borg.Runner{}, authorized, output.Writer(false, display.Label("borg", "restore")))
+	diagnostics := output.Writer(false, display.Label("borg", "restore"))
+	result, runErr := plan.Run(cmd.Context(), borg.Runner{}, authorized, diagnostics)
+	flushErr := diagnostics.Flush()
 	output.FinishTask(id)
-	if err := output.Err(); err != nil {
+	if err := errors.Join(flushErr, output.Err()); err != nil {
 		result.Outcome = borg.Failure
 		runErr = errors.Join(runErr, err)
 	}

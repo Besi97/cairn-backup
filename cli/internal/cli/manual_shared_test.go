@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -56,6 +57,49 @@ func TestSharedManualOutcomes(t *testing.T) {
 				t.Fatalf("result: %+v %v", result, err)
 			}
 		})
+	}
+}
+
+type rejectReplacementWriter struct {
+	bytes.Buffer
+}
+
+func (w *rejectReplacementWriter) Write(p []byte) (int, error) {
+	if bytes.Contains(p, []byte("�")) {
+		return 0, errors.New("diagnostic output failed")
+	}
+	return w.Buffer.Write(p)
+}
+
+func TestManualBorgIncompleteUTF8Diagnostics(t *testing.T) {
+	for _, operation := range []string{"backup", "restore"} {
+		for _, reject := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/reject=%t", operation, reject), func(t *testing.T) {
+				var args []string
+				if operation == "restore" {
+					fakeRestoreData(t)
+					args = append(restoreArgs(filepath.Join(t.TempDir(), "destination")), "--dry-run")
+				} else {
+					fakeBorgEnvironment(t)
+					args = backupArgs()
+				}
+				t.Setenv("FAKE_STDOUT", "trailing \xe2\x82")
+				var stdout bytes.Buffer
+				stderr := &rejectReplacementWriter{}
+				var diagnosticOutput io.Writer = &stderr.Buffer
+				if reject {
+					diagnosticOutput = stderr
+				}
+				code := Run(t.Context(), args, &stdout, diagnosticOutput, "test")
+				if reject {
+					if code != exitFailure || !strings.Contains(stdout.String(), "failed") {
+						t.Fatalf("code=%d stdout=%q stderr=%q", code, &stdout, stderr.String())
+					}
+				} else if code != exitSuccess || !strings.Contains(stderr.String(), "borg ["+operation+"] trailing ��\n") || !strings.Contains(stdout.String(), "completed") {
+					t.Fatalf("code=%d stdout=%q stderr=%q", code, &stdout, stderr.String())
+				}
+			})
+		}
 	}
 }
 
