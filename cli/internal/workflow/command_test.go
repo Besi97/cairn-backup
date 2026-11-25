@@ -40,6 +40,48 @@ func TestConfiguredCommandWorkflow(t *testing.T) {
 	}
 }
 
+func TestConfiguredShellWorkflow(t *testing.T) {
+	for _, tt := range []struct {
+		name, shell, command, timeout string
+		wantTimeout                   time.Duration
+		wantOutcome                   borg.Outcome
+		wantOutput                    string
+	}{
+		{"path lookup and expansion", "sh", `printf '%s' "$CAIRN_SHELL_TEST" | tr a-z A-Z`, "", 5 * time.Minute, borg.Success, "SELECTED"},
+		{"explicit path", "/bin/sh", `printf '%s' explicit`, "timeout_seconds: 3\n", 3 * time.Second, borg.Success, "explicit"},
+		{"missing shell", "/no/such/shell", "true", "", 5 * time.Minute, borg.Failure, ""},
+		{"nonzero", "/bin/sh", "exit 7", "", 5 * time.Minute, borg.Failure, ""},
+		{"timeout", "/bin/sh", "sleep 10", "timeout_seconds: 1\n", time.Second, borg.Failure, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("CAIRN_SHELL_TEST", "selected")
+			dir := t.TempDir()
+			path := filepath.Join(dir, "config.yaml")
+			text := fmt.Sprintf("version: 1\nrepositories: {}\nworkflows:\n  test:\n    stages:\n      - tasks:\n          - type: shell\n            shell: %s\n            command: %q\n            %s", tt.shell, tt.command, tt.timeout)
+			if err := os.WriteFile(path, []byte(text), 0600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := config.Load(config.Options{Path: path, Explicit: true, Directory: dir})
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan, err := Prepare(cfg, "test", time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			task := plan.Stages[0][0]
+			if task.Type != "shell" || task.Command.Program != tt.shell || task.Command.Timeout != tt.wantTimeout || len(task.Command.Args) != 2 || task.Command.Args[0] != "-c" || task.Command.Args[1] != tt.command {
+				t.Fatalf("prepared task: %+v", task)
+			}
+			var stdout, stderr bytes.Buffer
+			result, err := (Executor{Stdout: &stdout, Stderr: &stderr}).Run(context.Background(), plan)
+			if result.Outcome != tt.wantOutcome || (err != nil) != (tt.wantOutcome == borg.Failure) || !strings.Contains(stdout.String(), tt.wantOutput) {
+				t.Fatalf("result=%+v err=%v stdout=%s stderr=%s", result, err, &stdout, &stderr)
+			}
+		})
+	}
+}
+
 func TestConfiguredCommandDefaults(t *testing.T) {
 	for _, fields := range []string{"", ", args: []", ", timeout_seconds: 42"} {
 		t.Run(fields, func(t *testing.T) {

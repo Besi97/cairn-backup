@@ -111,9 +111,18 @@ func (config *Config) resolve(home string, doc *yaml.Node) error {
 			for ti := range workflow.Stages[si].Tasks {
 				task := &workflow.Stages[si].Tasks[ti]
 				fields := []string{"workflows", name, "stages", strconv.Itoa(si), "tasks", strconv.Itoa(ti)}
-				if task.Type == "command" {
+				if task.Type == "command" || task.Type == "shell" {
 					if task.TimeoutSeconds == 0 {
 						task.TimeoutSeconds = DefaultCommandTimeoutSeconds
+					}
+					if task.Type == "shell" {
+						if task.Shell == "" || strings.ContainsRune(task.Shell, 0) {
+							return fail(append(fields, "shell"), "must be a nonempty executable name or path without NUL")
+						}
+						if task.Command == "" || strings.ContainsRune(task.Command, 0) {
+							return fail(append(fields, "command"), "must be a nonempty command string without NUL")
+						}
+						continue
 					}
 					if task.Program == "" || strings.ContainsRune(task.Program, 0) {
 						return fail(append(fields, "program"), "must be a nonempty executable name or path without NUL")

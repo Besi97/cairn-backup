@@ -58,6 +58,16 @@ func TestInvalidConfigurations(t *testing.T) {
 		{"command null timeout", withTask("{type: command, program: /bin/true, timeout_seconds: null}"), "/timeout_seconds"},
 		{"command overflow timeout", withTask("{type: command, program: /bin/true, args: [], timeout_seconds: 9223372037}"), "/timeout_seconds"},
 		{"command repository", withTask("{type: command, program: /bin/true, args: [], timeout_seconds: 1, repository: local}"), "unknown"},
+		{"shell missing shell", withTask("{type: shell, command: 'true'}"), "missing required"},
+		{"shell missing command", withTask("{type: shell, shell: sh}"), "missing required"},
+		{"shell empty shell", withTask("{type: shell, shell: '', command: 'true'}"), "must not be empty"},
+		{"shell empty command", withTask("{type: shell, shell: sh, command: ''}"), "must not be empty"},
+		{"shell nul", withTask(`{type: shell, shell: "s\0h", command: 'true'}`), "/shell"},
+		{"shell command nul", withTask(`{type: shell, shell: sh, command: "a\0b"}`), "/command"},
+		{"shell zero timeout", withTask("{type: shell, shell: sh, command: 'true', timeout_seconds: 0}"), "/timeout_seconds"},
+		{"shell null timeout", withTask("{type: shell, shell: sh, command: 'true', timeout_seconds: null}"), "/timeout_seconds"},
+		{"shell overflow timeout", withTask("{type: shell, shell: sh, command: 'true', timeout_seconds: 9223372037}"), "/timeout_seconds"},
+		{"shell repository", withTask("{type: shell, shell: sh, command: 'true', repository: local}"), "unknown"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := loadText(t, tt.text)
@@ -65,6 +75,22 @@ func TestInvalidConfigurations(t *testing.T) {
 				t.Fatalf("error = %v; want %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestShellTimeout(t *testing.T) {
+	for _, tt := range []struct {
+		fields string
+		want   int
+	}{{"", 300}, {", timeout_seconds: 42", 42}} {
+		cfg, err := loadText(t, withTask("{type: shell, shell: sh, command: 'true'"+tt.fields+"}"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		task := firstTask(cfg)
+		if task.Shell != "sh" || task.Command != "true" || task.TimeoutSeconds != tt.want || task.LockWait != nil {
+			t.Fatalf("task = %#v", task)
+		}
 	}
 }
 

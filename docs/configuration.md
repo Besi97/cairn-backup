@@ -221,6 +221,24 @@ code: anyone able to change it can run arbitrary programs as Cairn, including
 through scheduled workflows. Restrict write access and review configuration before
 running it. Containers may not include the executable.
 
+### Shell commands
+
+```yaml
+type: shell
+shell: /bin/sh
+command: 'printf "%s\n" "$HOME" | sort'
+timeout_seconds: 600 # optional; defaults to 300 (5 minutes)
+```
+
+`shell` is an explicitly selected installed executable name (looked up in PATH)
+or path. Cairn invokes it with `-c` and the `command` string; choose a shell
+that supports this interface. No shell is selected or installed automatically:
+the distroless image has no shell. Shell tasks have the same timeout, working
+directory, environment, output, cancellation, and exit behavior as executable
+commands above. Shell commands are trusted code and run with Cairn's permissions;
+their text is visible in configuration browsing and may be visible to local
+processes. Do not put secrets in command strings or output.
+
 Cross-process workflow overlap protection rejects a duplicate manual invocation
 with exit code `2`, without waiting or starting Borg. Manual runs start immediately
 regardless of cron or timezone. Borg's repository/cache locks remain authoritative.
