@@ -204,7 +204,9 @@ an optional list of literal strings. Omitted or empty `args` means no arguments.
 performed. The working directory is the configuration directory, stdin is closed,
 and the process inherits Cairn's environment and permissions. The timeout defaults
 to 300 seconds (5 minutes); `timeout_seconds` overrides it with a value from
-1–9223372036 seconds (the maximum representable duration). Exit 0
+1–9223372036 seconds (the maximum representable duration). The timeout measures
+the command leader's execution, not the subsequent process-group cleanup.
+Cleanup can extend the total wall-clock duration beyond the timeout. Exit 0
 succeeds; every nonzero exit, signal, startup error, or timeout fails the task
 and prevents later stages. Workflow cancellation
 interrupts the task. Cairn stops the owned process group on exit or cancellation,

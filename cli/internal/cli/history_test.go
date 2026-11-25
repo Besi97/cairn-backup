@@ -169,6 +169,72 @@ func TestCLIHistoryPreservesCallerAndOutcomes(t *testing.T) {
 	}
 }
 
+func TestShellWorkflowPersistsLifecycle(t *testing.T) {
+	for _, tt := range []struct {
+		name, command string
+		code          int
+		outcome       lifecycle.Outcome
+		counts        history.TaskCounts
+	}{
+		{"success", "printf private-shell-output", 0, lifecycle.Success, history.TaskCounts{Success: 2}},
+		{"failure", "printf private-shell-output; exit 7", 2, lifecycle.Failure, history.TaskCounts{Failure: 1, Skipped: 1}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("XDG_STATE_HOME", t.TempDir())
+			t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+			path := writeWorkflowConfig(t, `version: 1
+repositories: {}
+workflows:
+  manual:
+    stages:
+      - tasks:
+          - {type: shell, shell: /bin/sh, command: "`+tt.command+`"}
+      - tasks:
+          - {type: shell, shell: /bin/sh, command: "true"}
+`)
+			var events []lifecycle.Event
+			ctx := lifecycle.WithObserver(t.Context(), func(e lifecycle.Event) error {
+				events = append(events, e)
+				return nil
+			})
+			var output bytes.Buffer
+			if code := Run(ctx, []string{"workflow", "run", "manual", "--config", path}, &output, &output, "test"); code != tt.code {
+				t.Fatalf("code=%d output=%s", code, &output)
+			}
+			var finished, skipped int
+			for _, e := range events {
+				if e.Kind == lifecycle.TaskFinished || e.Kind == lifecycle.TaskSkipped {
+					if e.Operation != "shell" || e.Repository != "" {
+						t.Fatalf("shell attribution: %+v", e)
+					}
+					if e.Kind == lifecycle.TaskFinished {
+						finished++
+					} else if e.Reason == lifecycle.PriorFailure {
+						skipped++
+					}
+				}
+			}
+			if finished != int(tt.counts.Success+tt.counts.Failure) || skipped != int(tt.counts.Skipped) {
+				t.Fatalf("events=%+v", events)
+			}
+			store, err := history.OpenReadOnly()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			runs, err := store.List()
+			if err != nil || len(runs) != 1 || runs[0].Workflow != "manual" || runs[0].Outcome != tt.outcome ||
+				runs[0].Tasks != tt.counts || runs[0].Incomplete || runs[0].Partial {
+				t.Fatalf("runs=%+v err=%v", runs, err)
+			}
+			data, err := os.ReadFile(filepath.Join(os.Getenv("XDG_STATE_HOME"), "cairn/history/runs.json"))
+			if err != nil || bytes.Contains(data, []byte("private-shell-output")) {
+				t.Fatalf("history exposed shell text or output: %v", err)
+			}
+		})
+	}
+}
+
 func TestCLIHistoryFailureDoesNotChangeWorkflow(t *testing.T) {
 	for _, exit := range []string{"0", "1", "2"} {
 		t.Run(exit, func(t *testing.T) {

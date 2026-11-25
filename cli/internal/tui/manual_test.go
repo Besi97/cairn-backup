@@ -48,14 +48,17 @@ func manualModel(t *testing.T) Model {
 func TestCommandConfirmationShowsEffectiveTimeout(t *testing.T) {
 	m := manualModel(t)
 	m.prepared = &workflow.Manual{Plan: workflow.Plan{Stages: [][]workflow.Task{{
-		{Command: &workflow.Command{Timeout: 5 * time.Minute}},
-		{Command: &workflow.Command{Timeout: 42 * time.Second}},
+		{Type: "command", Command: &workflow.Command{Timeout: 5 * time.Minute}},
+		{Type: "shell", Command: &workflow.Command{Args: []string{"-c", "private-shell-text"}, Timeout: 42 * time.Second}},
 	}}}}
 	text := m.confirmation()
-	for _, want := range []string{"timeout 5m0s", "timeout 42s"} {
+	for _, want := range []string{"command (trusted executable; timeout 5m0s)", "shell (trusted shell command; timeout 42s)"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("missing %q in %q", want, text)
 		}
+	}
+	if strings.Contains(text, "private-shell-text") {
+		t.Fatal("confirmation exposed shell text")
 	}
 }
 

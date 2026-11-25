@@ -216,6 +216,19 @@ func TestCommandExecution(t *testing.T) {
 			t.Fatalf("result=%+v err=%v elapsed=%v", result, err, time.Since(start))
 		}
 	})
+	t.Run("shell leader exits before timeout while descendant cleans up", func(t *testing.T) {
+		t.Setenv("CAIRN_HELPER_BINARY", binary)
+		t.Setenv("CAIRN_HELPER_READY", filepath.Join(t.TempDir(), "ready"))
+		task := Task{Type: "shell", Command: &Command{
+			Program: "/bin/sh", Args: []string{"-c", `exec "$CAIRN_HELPER_BINARY" -test.run=^TestCommandHelper$ -- descendant "$CAIRN_HELPER_READY"`},
+			Timeout: 600 * time.Millisecond,
+		}}
+		start := time.Now()
+		result, err := (Executor{}).Run(context.Background(), Plan{Stages: [][]Task{{task}}})
+		if err != nil || result.Outcome != borg.Success || time.Since(start) < task.Command.Timeout {
+			t.Fatalf("result=%+v err=%v elapsed=%v", result, err, time.Since(start))
+		}
+	})
 	t.Run("leader exit stops descendant", func(t *testing.T) {
 		ready := filepath.Join(t.TempDir(), "ready")
 		task := command("descendant", ready, "child-term")
@@ -262,6 +275,54 @@ func TestCommandExecution(t *testing.T) {
 		result, err := (Executor{}).Run(ctx, Plan{Stages: [][]Task{{command("wait")}}})
 		if !errors.Is(err, context.Canceled) || result.Outcome != borg.Interrupted {
 			t.Fatalf("result=%+v err=%v", result, err)
+		}
+	})
+	t.Run("shell cancellation stops descendant", func(t *testing.T) {
+		ready := filepath.Join(t.TempDir(), "ready")
+		t.Setenv("CAIRN_HELPER_BINARY", binary)
+		t.Setenv("CAIRN_HELPER_READY", ready)
+		task := Task{Type: "shell", Command: &Command{
+			Program: "/bin/sh", Args: []string{"-c", `"$CAIRN_HELPER_BINARY" -test.run=^TestCommandHelper$ -- child-term "$CAIRN_HELPER_READY" & wait`},
+			Timeout: 30 * time.Second,
+		}}
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		type runResult struct {
+			result Result
+			err    error
+		}
+		done := make(chan runResult, 1)
+		go func() {
+			result, err := (Executor{}).Run(ctx, Plan{Stages: [][]Task{{task}}})
+			done <- runResult{result, err}
+		}()
+		deadline := time.NewTimer(10 * time.Second)
+		defer deadline.Stop()
+		tick := time.NewTicker(10 * time.Millisecond)
+		defer tick.Stop()
+		for {
+			if _, err := os.Stat(ready); err == nil {
+				break
+			}
+			select {
+			case <-tick.C:
+			case <-deadline.C:
+				cancel()
+				<-done
+				t.Fatal("descendant did not start")
+			}
+		}
+		cancel()
+		select {
+		case got := <-done:
+			if !errors.Is(got.err, context.Canceled) || got.result.Outcome != borg.Interrupted {
+				t.Fatalf("result=%+v err=%v", got.result, got.err)
+			}
+			if _, err := os.Stat(ready + ".stopped"); err != nil {
+				t.Fatalf("descendant did not finish cleanup: %v", err)
+			}
+		case <-deadline.C:
+			t.Fatal("shell cancellation hung")
 		}
 	})
 	t.Run("startup failure", func(t *testing.T) {
