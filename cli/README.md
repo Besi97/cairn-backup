@@ -629,6 +629,8 @@ a supported Borg binary named `borg` and run:
 make integration-test CAIRN_TEST_BORG="$(command -v borg)"
 ```
 
-The integration target enables real-Borg tests and runs the entire Go test suite
-without package or test-name filters. Plain `go test ./...` also opts into those
-tests when `CAIRN_TEST_BORG` is set; without it, they skip.
+The integration target runs tests named `TestRealBorg...` or
+`TestTUIRealBorg...` with the race detector. Name new real-Borg tests using one
+of those prefixes so they are included. The ordinary test suite runs separately
+with `make test`. Plain `go test ./...` also opts into real-Borg tests when
+`CAIRN_TEST_BORG` is set; without it, they skip.
