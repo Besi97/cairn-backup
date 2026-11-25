@@ -112,8 +112,8 @@ func (config *Config) resolve(home string, doc *yaml.Node) error {
 				task := &workflow.Stages[si].Tasks[ti]
 				fields := []string{"workflows", name, "stages", strconv.Itoa(si), "tasks", strconv.Itoa(ti)}
 				if task.Type == "command" {
-					if !filepath.IsAbs(task.Program) || strings.ContainsRune(task.Program, 0) {
-						return fail(append(fields, "program"), "must be an absolute executable path without NUL")
+					if task.Program == "" || strings.ContainsRune(task.Program, 0) {
+						return fail(append(fields, "program"), "must be a nonempty executable name or path without NUL")
 					}
 					for _, arg := range task.Args {
 						if strings.ContainsRune(arg, 0) {

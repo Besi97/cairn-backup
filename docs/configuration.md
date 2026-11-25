@@ -199,18 +199,20 @@ args: ["--target", "data"]
 timeout_seconds: 300
 ```
 
-`program` must be an absolute executable path; `args` is a required list of
-literal strings (which may be empty). No shell, expansion, or interpolation is
+`program` is an executable name (looked up in Cairn's PATH) or path; `args` is
+a required list of literal strings (which may be empty). No shell, expansion, or interpolation is
 performed. The working directory is the configuration directory, stdin is closed,
 and the process inherits Cairn's environment and permissions. The required
-timeout is 1–86400 seconds. Exit 0 succeeds; every nonzero exit, signal, startup
-error, or timeout fails the task and prevents later stages. Workflow cancellation
+timeout is 1–9223372036 seconds (the maximum representable duration). Exit 0
+succeeds; every nonzero exit, signal, startup error, or timeout fails the task
+and prevents later stages. Workflow cancellation
 interrupts the task. Cairn stops the owned process group on exit or cancellation,
 escalating to SIGKILL after its grace period; detached descendants are not owned.
 
-Standard output and error are streamed with task labels to their respective
-streams; output is not stored in history and may contain sensitive data. Command
-arguments are visible in configuration browsing and may be visible to other local
+Standard output and error are streamed in labelled chunks to their respective
+streams; a partial line may receive multiple labels. Output is not stored in
+history and may contain sensitive data. Command arguments are visible in
+configuration browsing and may be visible to other local
 processes. Do not put secrets in arguments or print them. Configuration is trusted
 code: anyone able to change it can run arbitrary programs as Cairn, including
 through scheduled workflows. Restrict write access and review configuration before

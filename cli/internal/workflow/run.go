@@ -191,7 +191,7 @@ func (e Executor) run(ctx context.Context, plan Plan, events *lifecycle.Run, pre
 		if err := ctx.Err(); err != nil {
 			result.Outcome = borg.Interrupted
 			events.Emit(lifecycle.Event{Kind: lifecycle.StageFinished, Stage: i + 1, Outcome: lifecycle.Interrupted})
-			return result, err
+			return result, errors.Join(append([]error{err}, failures...)...)
 		}
 		events.Emit(lifecycle.Event{Kind: lifecycle.StageFinished, Stage: i + 1, Outcome: lifecycle.FromBorg(result.Outcome)})
 		if result.Outcome != borg.Success {
@@ -321,11 +321,10 @@ func runCommand(ctx context.Context, runner OperationRunner, output *Output, att
 	if r, ok := runner.(borg.Runner); ok {
 		cmd.ExtraFiles = r.InheritedFiles
 	}
-	stdout := display.NewLines(output.Writer(true, display.Label("command stdout", attribution)))
-	stderr := display.NewLines(output.Writer(false, display.Label("command stderr", attribution)))
-	cmd.Stdout, cmd.Stderr = stdout, stderr
+	cmd.Stdout = output.Writer(true, display.Label("command stdout", attribution))
+	cmd.Stderr = output.Writer(false, display.Label("command stderr", attribution))
 	err := borg.RunOwnedProcess(childCtx, cmd)
-	outputErr := errors.Join(stdout.Flush(), stderr.Flush(), output.Err())
+	outputErr := output.Err()
 	if cmd.ProcessState != nil {
 		result.ExitCode = cmd.ProcessState.ExitCode()
 		if status, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && status.Signaled() {
@@ -334,17 +333,17 @@ func runCommand(ctx context.Context, runner OperationRunner, output *Output, att
 	}
 	var cleanupErr error
 	if errors.Is(err, borg.ErrProcessGroupNotStopped) {
-		cleanupErr = errors.New("command process group did not stop")
+		cleanupErr = fmt.Errorf("command process group did not stop: %w", borg.ErrProcessGroupNotStopped)
 	}
 	if ctx.Err() != nil {
 		result.Outcome = borg.Interrupted
 		return result, errors.Join(ctx.Err(), cleanupErr, outputErr)
 	}
-	if childCtx.Err() != nil {
+	if errors.Is(err, context.DeadlineExceeded) {
 		return result, errors.Join(errors.New("command timed out"), cleanupErr, outputErr)
 	}
 	if outputErr != nil {
-		return result, errors.Join(errors.New("command output failed"), outputErr)
+		return result, errors.Join(errors.New("command output failed"), cleanupErr, outputErr)
 	}
 	if err != nil {
 		if cleanupErr != nil {

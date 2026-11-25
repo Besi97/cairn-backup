@@ -82,6 +82,18 @@ func TestStageConcurrencyAndBarrier(t *testing.T) {
 	}
 }
 
+func TestCancellationRetainsCleanupFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	runner := runnerFunc(func(ctx context.Context, _ borg.Request) (borg.Result, error) {
+		cancel()
+		return borg.Result{Outcome: borg.Interrupted}, errors.Join(ctx.Err(), borg.ErrProcessGroupNotStopped)
+	})
+	result, err := (Executor{Runner: runner}).Run(ctx, Plan{Stages: [][]Task{{{Type: "backup"}}}})
+	if result.Outcome != borg.Interrupted || !errors.Is(err, context.Canceled) || !errors.Is(err, borg.ErrProcessGroupNotStopped) {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+}
+
 func TestStageOutcomesWaitForSiblings(t *testing.T) {
 	for _, outcomes := range [][2]borg.Outcome{
 		{borg.Warning, borg.Success}, {borg.Success, borg.Warning},

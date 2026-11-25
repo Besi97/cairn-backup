@@ -43,14 +43,16 @@ func runProcess(ctx context.Context, cmd *exec.Cmd, grace time.Duration) error {
 	exited := make(chan error, 1)
 	go func() { exited <- awaitLeader(cmd.Process.Pid) }()
 	var waitErr error
+	var cancelErr error
 	signal := syscall.SIGTERM
 	observed := false
 	select {
 	case waitErr = <-exited:
 		observed = true
 	case <-ctx.Done():
+		cancelErr = ctx.Err()
 	}
-	if ctx.Err() != nil {
+	if cancelErr != nil {
 		signal = cancellation.From(ctx)
 	}
 	// Do not reap the group leader until group cleanup finishes. Its retained
@@ -60,8 +62,8 @@ func runProcess(ctx context.Context, cmd *exec.Cmd, grace time.Duration) error {
 		waitErr = <-exited
 	}
 	err := cmd.Wait()
-	if ctx.Err() != nil {
-		return errors.Join(ctx.Err(), cleanupErr, waitErr)
+	if cancelErr != nil {
+		return errors.Join(cancelErr, cleanupErr, waitErr)
 	}
 	if cleanupErr != nil || waitErr != nil {
 		return &lifecycleError{errors.Join(err, cleanupErr, waitErr)}

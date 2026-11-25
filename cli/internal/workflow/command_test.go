@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -18,7 +21,7 @@ import (
 func TestConfiguredCommandWorkflow(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	text := "version: 1\nrepositories: {}\nworkflows:\n  test:\n    stages:\n      - tasks:\n          - {type: command, program: /bin/echo, args: ['a b', '$(literal)'], timeout_seconds: 5}\n"
+	text := "version: 1\nrepositories: {}\nworkflows:\n  test:\n    stages:\n      - tasks:\n          - {type: command, program: echo, args: ['a b', '$(literal)'], timeout_seconds: 5}\n"
 	if err := os.WriteFile(path, []byte(text), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -52,6 +55,40 @@ func TestCommandHelper(t *testing.T) {
 				os.Exit(1)
 			case "wait":
 				time.Sleep(time.Minute)
+			case "partial":
+				fmt.Fprint(os.Stdout, "partial")
+				time.Sleep(time.Minute)
+			case "descendant":
+				mode := "child"
+				if len(os.Args) > i+3 {
+					mode = os.Args[i+3]
+				}
+				child := exec.Command(os.Args[0], "-test.run=^TestCommandHelper$", "--", mode, os.Args[i+2])
+				if child.Start() != nil {
+					os.Exit(3)
+				}
+				for {
+					if _, err := os.Stat(os.Args[i+2]); err == nil {
+						os.Exit(0)
+					}
+					time.Sleep(time.Millisecond)
+				}
+			case "child":
+				signal.Ignore(syscall.SIGTERM)
+				if os.WriteFile(os.Args[i+2], []byte("ready"), 0600) != nil {
+					os.Exit(4)
+				}
+				time.Sleep(1200 * time.Millisecond)
+				os.Exit(0)
+			case "child-term":
+				signals := make(chan os.Signal, 1)
+				signal.Notify(signals, syscall.SIGTERM)
+				if os.WriteFile(os.Args[i+2], []byte("ready"), 0600) != nil {
+					os.Exit(4)
+				}
+				<-signals
+				_ = os.WriteFile(os.Args[i+2]+".stopped", []byte("stopped"), 0600)
+				os.Exit(0)
 			}
 		}
 	}
@@ -60,6 +97,8 @@ func TestCommandHelper(t *testing.T) {
 
 func TestCommandExecution(t *testing.T) {
 	t.Setenv("CAIRN_COMMAND_HELPER", "1")
+	// Race-instrumented helper processes otherwise pause for a second on exit.
+	t.Setenv("GORACE", "atexit_sleep_ms=0")
 	binary, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -93,6 +132,54 @@ func TestCommandExecution(t *testing.T) {
 			t.Fatalf("result=%+v err=%v", result, err)
 		}
 	})
+	t.Run("leader exits before timeout while descendant cleans up", func(t *testing.T) {
+		task := command("descendant", filepath.Join(t.TempDir(), "ready"))
+		task.Command.Timeout = 600 * time.Millisecond
+		start := time.Now()
+		result, err := (Executor{}).Run(context.Background(), Plan{Stages: [][]Task{{task}}})
+		if err != nil || result.Outcome != borg.Success || time.Since(start) < task.Command.Timeout {
+			t.Fatalf("result=%+v err=%v elapsed=%v", result, err, time.Since(start))
+		}
+	})
+	t.Run("leader exit stops descendant", func(t *testing.T) {
+		ready := filepath.Join(t.TempDir(), "ready")
+		task := command("descendant", ready, "child-term")
+		result, err := (Executor{}).Run(context.Background(), Plan{Stages: [][]Task{{task}}})
+		if err != nil || result.Outcome != borg.Success {
+			t.Fatalf("result=%+v err=%v", result, err)
+		}
+		if _, err := os.Stat(ready + ".stopped"); err != nil {
+			t.Fatalf("descendant did not receive termination: %v", err)
+		}
+	})
+	t.Run("partial output streams before exit", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		writes := make(chan string, 10)
+		done := make(chan error, 1)
+		go func() {
+			_, err := (Executor{Stdout: commandWriter(writes)}).Run(ctx, Plan{Stages: [][]Task{{command("partial")}}})
+			done <- err
+		}()
+		timer := time.NewTimer(5 * time.Second)
+		defer timer.Stop()
+		for {
+			select {
+			case text := <-writes:
+				if strings.Contains(text, "partial") {
+					cancel()
+					if err := <-done; !errors.Is(err, context.Canceled) {
+						t.Fatal(err)
+					}
+					return
+				}
+			case <-timer.C:
+				cancel()
+				<-done
+				t.Fatal("partial output was not streamed")
+			}
+		}
+	})
 	t.Run("cancellation", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		timer := time.AfterFunc(100*time.Millisecond, cancel)
@@ -110,4 +197,11 @@ func TestCommandExecution(t *testing.T) {
 			t.Fatalf("result=%+v err=%v", result, err)
 		}
 	})
+}
+
+type commandWriter chan string
+
+func (w commandWriter) Write(p []byte) (int, error) {
+	w <- string(p)
+	return len(p), nil
 }

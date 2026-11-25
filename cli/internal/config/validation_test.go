@@ -51,10 +51,10 @@ func TestInvalidConfigurations(t *testing.T) {
 		{"check repair", withTask("{type: check, repository: local, repair: true}"), "unknown"},
 		{"check selector", withTask("{type: check, repository: local, archive_prefix: docs}"), "unknown"},
 		{"check negative wait", withTask("{type: check, repository: local, lock_wait: -1}"), "/lock_wait"},
-		{"command relative program", withTask("{type: command, program: ./cmd, args: [], timeout_seconds: 1}"), "/program"},
+		{"command empty program", withTask("{type: command, program: '', args: [], timeout_seconds: 1}"), "/program"},
 		{"command missing args", withTask("{type: command, program: /bin/true, timeout_seconds: 1}"), "missing required"},
 		{"command zero timeout", withTask("{type: command, program: /bin/true, args: [], timeout_seconds: 0}"), "/timeout_seconds"},
-		{"command long timeout", withTask("{type: command, program: /bin/true, args: [], timeout_seconds: 86401}"), "/timeout_seconds"},
+		{"command overflow timeout", withTask("{type: command, program: /bin/true, args: [], timeout_seconds: 9223372037}"), "/timeout_seconds"},
 		{"command repository", withTask("{type: command, program: /bin/true, args: [], timeout_seconds: 1, repository: local}"), "unknown"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -74,6 +74,15 @@ func TestCommandWithoutRepository(t *testing.T) {
 	task := cfg.Workflows["test"].Stages[0].Tasks[0]
 	if task.Program != "/bin/echo" || len(task.Args) != 3 || task.Args[1] != "$(literal)" || task.LockWait != nil {
 		t.Fatalf("unexpected task: %#v", task)
+	}
+}
+
+func TestCommandLongTimeoutAndExecutableNames(t *testing.T) {
+	for _, program := range []string{"echo", "./echo", "/bin/echo"} {
+		_, err := loadText(t, withTask("{type: command, program: "+program+", args: [], timeout_seconds: 9223372036}"))
+		if err != nil {
+			t.Fatalf("%s: %v", program, err)
+		}
 	}
 }
 

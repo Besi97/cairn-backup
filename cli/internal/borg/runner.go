@@ -96,7 +96,7 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 		if ctx.Err() != nil {
 			result := processResult(probe)
 			result.Outcome = Interrupted
-			return result, err
+			return result, errors.Join(ctx.Err(), err)
 		}
 		return failed, fmt.Errorf("check Borg version: %w", err)
 	}
@@ -144,7 +144,7 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	if ctx.Err() != nil && err != nil {
 		result := processResult(cmd)
 		result.Outcome = Interrupted
-		return result, err
+		return result, errors.Join(ctx.Err(), err)
 	}
 	if stdout != nil && stdout.Err() != nil {
 		result := processResult(cmd)
