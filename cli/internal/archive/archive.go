@@ -124,6 +124,9 @@ func stream(ctx context.Context, runner borg.Runner, request borg.Request, decod
 	decodeErr := <-done
 	if decodeErr != nil {
 		if result.Outcome == borg.Interrupted && borg.IsCancellation(runErr) && context.Cause(runCtx) != decodeStopped {
+			if decodeErr == io.EOF {
+				return result, runErr
+			}
 			return result, errors.Join(runErr, &borg.SecondaryError{Err: fmt.Errorf("read Borg listing: %w", decodeErr)})
 		}
 		if runErr != nil && (decodeErr == io.EOF || decodeErr == io.ErrUnexpectedEOF) {

@@ -105,6 +105,17 @@ func TestServiceStreaming(t *testing.T) {
 			}
 		})
 	}
+	t.Run("cancel before archive data", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		request := borg.Request{Args: []string{"list"}, Env: map[string]string{"LIST_BORG_WAIT": "yes"}}
+		request.Diagnostics = cancelOnWrite{cancel}
+		result, err := List(ctx, borg.Runner{Executable: binary}, request, func(Archive) error { return nil })
+		var secondary *borg.SecondaryError
+		if result.Outcome != borg.Interrupted || !borg.IsCancellation(err) || !errors.Is(err, context.Canceled) || errors.As(err, &secondary) {
+			t.Fatalf("result = %+v, error = %v", result, err)
+		}
+	})
 	t.Run("cancel after first file", func(t *testing.T) {
 		dataPath := filepath.Join(t.TempDir(), "data")
 		if err := os.WriteFile(dataPath, []byte(fileJSON+"\n"), 0600); err != nil {
@@ -139,4 +150,11 @@ func TestServiceStreaming(t *testing.T) {
 			t.Fatalf("result = %+v, error = %v", result, err)
 		}
 	})
+}
+
+type cancelOnWrite struct{ cancel context.CancelFunc }
+
+func (w cancelOnWrite) Write(p []byte) (int, error) {
+	w.cancel()
+	return len(p), nil
 }

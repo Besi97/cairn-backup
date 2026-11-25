@@ -45,6 +45,10 @@ func TestProcessGroupCancellation(t *testing.T) {
 					if !errors.Is(err, context.Canceled) {
 						t.Fatalf("error = %v", err)
 					}
+					var secondary *SecondaryError
+					if errors.As(err, &secondary) {
+						t.Fatalf("signal termination reported as secondary error: %v", err)
+					}
 				case <-time.After(5 * time.Second):
 					t.Fatal("cancellation hung")
 				}
@@ -65,6 +69,54 @@ func TestProcessGroupCancellation(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestCancellationRetainsWaitDelay(t *testing.T) {
+	ready := filepath.Join(t.TempDir(), "ready")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	cmd := exec.Command("sh", "-c", `trap 'exit 0' TERM; setsid sh -c 'echo ready > "$1"; sleep 1' sh "$1" & while :; do sleep 0.01; done`, "sh", ready)
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	done := make(chan error, 1)
+	go func() { done <- runProcess(ctx, cmd, 50*time.Millisecond) }()
+	awaitFile(t, ready)
+	cancel()
+	select {
+	case err := <-done:
+		var secondary *SecondaryError
+		if !IsCancellation(err) || !errors.Is(err, context.Canceled) || !errors.Is(err, exec.ErrWaitDelay) || !errors.As(err, &secondary) {
+			t.Fatalf("lost wait delay after cancellation: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancellation hung")
+	}
+}
+
+type errorWriter struct{ err error }
+
+func (w errorWriter) Write([]byte) (int, error) { return 0, w.err }
+
+func TestCancellationRetainsWaitOutputError(t *testing.T) {
+	ready := filepath.Join(t.TempDir(), "ready")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	cmd := exec.Command("sh", "-c", `trap 'echo cleanup; exit 0' TERM; echo ready > "$1"; while :; do sleep 0.01; done`, "sh", ready)
+	writeErr := errors.New("output failed")
+	cmd.Stdout = errorWriter{writeErr}
+	done := make(chan error, 1)
+	go func() { done <- runProcess(ctx, cmd, 100*time.Millisecond) }()
+	awaitFile(t, ready)
+	cancel()
+	select {
+	case err := <-done:
+		var secondary *SecondaryError
+		if !IsCancellation(err) || !errors.Is(err, context.Canceled) || !errors.Is(err, writeErr) || !errors.As(err, &secondary) {
+			t.Fatalf("lost output error after cancellation: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancellation hung")
 	}
 }
 

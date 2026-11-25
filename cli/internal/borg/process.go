@@ -65,7 +65,19 @@ func runProcess(ctx context.Context, cmd *exec.Cmd, grace time.Duration) error {
 	}
 	err := cmd.Wait()
 	if cancelErr != nil {
-		return &processCanceled{errors.Join(cancelErr, cleanupErr, waitErr)}
+		// A signal sent during cleanup is an expected consequence of cancellation,
+		// but wait failures such as an undrained output pipe must remain visible.
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			if status, ok := exit.Sys().(syscall.WaitStatus); ok && status.Signaled() &&
+				(status.Signal() == signal || status.Signal() == syscall.SIGKILL) {
+				err = nil
+			}
+		}
+		if err != nil {
+			err = &SecondaryError{Err: err}
+		}
+		return &processCanceled{errors.Join(cancelErr, cleanupErr, waitErr, err)}
 	}
 	if cleanupErr != nil || waitErr != nil {
 		return &lifecycleError{errors.Join(err, cleanupErr, waitErr)}
